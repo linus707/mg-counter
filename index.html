@@ -703,13 +703,15 @@ function ocrNameStickers(lines,W,H){
   return out;
 }
 const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/48006030N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"]];
+// Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
+function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
 function stickerFromRef(kind,ref0,x,y){
   let ref=ref0,maker="",product="",spec="",len=null;
   if(kind==="boston"){ref=ref.replace(/[Oo]/g,"0").replace(/[Il]/g,"1").replace(/S/g,"5").replace(/B/g,"8");
     maker="Boston Scientific";product=ref.startsWith("H7493917")?"MUSTANG":"Athletis";
     const m=ref.match(/^H7493(?:917|934)\d(\d{2})(\d{2})70$/);if(m){len=+m[2]*10;spec=`${+m[1]}.0mm x ${len}mm 75cm`}else spec=`REF ${ref}`}
-  else if(kind==="cqf"){maker="BD";product="Conquest 40";spec=REF_SPEC[ref]||`REF ${ref}`}
+  else if(kind==="cqf"){maker="BD";product="Conquest 40";spec=REF_SPEC[ref]||cqfSpec(ref)||`REF ${ref}`}
   else if(kind==="atg"){maker="BD";product="Atlas Gold";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="abbott"){ref=ref.replace(/^1011917-?/,"1011917-");maker="Abbott";product="Absolute Pro OTW";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="genoss"){const m=ref.match(/GPNCN-?(\d{2})-?(\d{3})-?(\d{3})/);maker="Genoss";product="PTA Balloon";spec=m?`${+m[1]}mm x ${+m[2]}mm ${+m[3]}cm`:`REF ${ref}`;if(m)ref=`GPNCN-${m[1]}-${m[2]}-${m[3]}`}
@@ -728,12 +730,18 @@ function ocrStickers(lines){
 }
 // 바코드로 이미 읽은 스티커와 같은 제품이 가까이 있으면 같은 스티커로 보고, 남은 것만 '글자로만 읽은 스티커'로 추가해요.
 function leftoverOcr(barcodeList,ocrList,W,H){
-  const D=.12*Math.max(W,H),free=ocrList.slice();
-  for(const b of barcodeList){
-    const rb=classify(b,null);let bi=-1,bd=1e9;
-    free.forEach((o,i)=>{if(classify(o,null)===rb){const d=Math.hypot(o.x-b.x,o.y-b.y);if(d<D&&d<bd){bd=d;bi=i}}});
-    if(bi>=0)free.splice(bi,1);
-  }
+  const M=Math.max(W,H),free=ocrList.slice(),used=new Set();
+  // 글자(REF)는 스티커 왼쪽, 바코드는 오른쪽에 있어서 같은 스티커여도 거리가 꽤 떨어질 수 있어요. 가까운 순으로, 조건을 점점 느슨하게 짝을 지어요.
+  const pass=(D,ok)=>{for(const b of barcodeList){
+    if(used.has(b))continue;const rb=classify(b,null);if(!rb)continue;let bi=-1,bd=1e9;
+    free.forEach((o,i)=>{if(classify(o,null)===rb&&ok(o,b)){const d=Math.hypot(o.x-b.x,o.y-b.y);if(d<D*M&&d<bd){bd=d;bi=i}}});
+    if(bi>=0){free.splice(bi,1);used.add(b)}}};
+  pass(.20,(o,b)=>normSpec(o.spec)===normSpec(b.spec)); // 규격까지 같은 것 먼저
+  pass(.12,()=>true);
+  // 같은 스티커 글자가 두 번 읽혔거나(CQF75810 / CQF78810) 잘못 읽힌 경우(CQF7576을 CQF7676으로): 같은 제품 바코드 스티커와 아주 가까우면 그 스티커의 일부로 봐요
+  pass(.14,(o)=>/^REF /.test(o.spec||""));
+  for(let i=free.length-1;i>=0;i--){const o=free[i];if(!/^REF /.test(o.spec||""))continue;const r=classify(o,null);
+    if(r&&barcodeList.some(b=>classify(b,null)===r&&Math.hypot(o.x-b.x,o.y-b.y)<.12*M))free.splice(i,1)}
   return free;
 }
 // ---------- AI 보강 (선택 · 본인 Claude API 키) ----------
