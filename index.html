@@ -100,7 +100,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   </div>
   <details id="keyBox"><summary>사진 인식 설정 (Claude API 키)</summary>
     <div class="hint">키는 이 기기의 브라우저에만 저장돼요. 사진을 읽을 때만 사진이 Anthropic 서버로 전송돼요. 환자 정보가 보이는 사진은 올리지 마세요. 사용 한도를 정한 전용 키를 쓰는 것을 권해요.</div>
-    <div class="row"><input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off"><button id="bKeySave" class="sm">저장</button><button id="bKeyDel" class="sm">삭제</button></div>
+    <div class="row"><input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off"><button id="bKeySave" class="sm">저장</button><button id="bKeyTest" class="sm">연결 테스트</button><button id="bKeyDel" class="sm">삭제</button></div>
     <label class="scanner"><input type="checkbox" id="oKeyKeep">이 기기에 계속 저장 (끄면 탭을 닫을 때 지워져요)</label>
     <div class="hint" id="keyState"></div>
   </details>
@@ -351,16 +351,35 @@ function parseJson(t){t=String(t||"").trim();try{return JSON.parse(t)}catch(e){}
   const a=t.indexOf("{"),z=t.lastIndexOf("}");if(a>=0&&z>a){try{return JSON.parse(t.slice(a,z+1))}catch(e){}}return null}
 SAMPLE=async()=>({text:""});
 SAMPLE.limits=async()=>({images:{maxCount:5}});
+const API="https://api.anthropic.com/v1/messages";
+const NETFAIL="네트워크 연결 실패: api.anthropic.com 에 접속하지 못했어요. 병원·회사 망이 막았거나 인터넷이 끊겼을 수 있어요. LTE/5G로 바꿔서 다시 시도해 보세요";
+async function apiPost(key,body,signal){
+  let r;try{r=await fetch(API,{method:"POST",signal,headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify(body)})}
+  catch(e){throw {code:e&&e.name==="AbortError"?"cancelled":"upstream_error",detail:e&&e.name==="AbortError"?"":NETFAIL}}
+  if(!r.ok){let m="";try{const j=await r.json();m=(j.error&&j.error.message)||""}catch(e){}
+    throw {code:r.status===401||r.status===403?"not_granted":r.status===429?"rate_limited":r.status===400||r.status===413?"image_rejected":"upstream_error",status:r.status,detail:`HTTP ${r.status}${m?" · "+m:""}`}}
+  return r.json();
+}
 SAMPLE.json=async(prompt,opt)=>{
   const key=getKey();if(!key)throw {code:"not_granted"};
   const content=[];for(const bl of opt.images)content.push({type:"image",source:{type:"base64",media_type:"image/jpeg",data:await blobB64(bl)}});
   content.push({type:"text",text:prompt});
-  const model=opt.modelTier==="complex"?"claude-opus-5-5":"claude-sonnet-5-5";
-  let r;try{r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",signal:opt.signal,headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model,max_tokens:8000,messages:[{role:"user",content}]})})}
-  catch(e){throw {code:e&&e.name==="AbortError"?"cancelled":"upstream_error"}}
-  if(!r.ok)throw {code:r.status===401||r.status===403?"not_granted":r.status===429?"rate_limited":r.status===400||r.status===413?"image_rejected":"upstream_error"};
-  const j=await r.json();const v=parseJson((j.content||[]).filter(c=>c.type==="text").map(c=>c.text).join(""));
-  if(v==null)throw {code:"invalid_json"};return v;
+  const models=opt.modelTier==="complex"?["claude-opus-5-5","claude-sonnet-5-5"]:["claude-sonnet-5-5","claude-sonnet-4-5"];
+  let j,last;
+  for(const model of models){
+    try{j=await apiPost(key,{model,max_tokens:8000,messages:[{role:"user",content}]},opt.signal);break}
+    catch(e){last=e;if(e&&e.status===404)continue;throw e}
+  }
+  if(!j)throw last;
+  const v=parseJson((j.content||[]).filter(c=>c.type==="text").map(c=>c.text).join(""));
+  if(v==null)throw {code:"invalid_json",detail:"응답을 JSON으로 읽지 못했어요"};return v;
+};
+$("bKeyTest").onclick=async()=>{
+  const key=getKey();if(!key){toast("먼저 키를 저장하세요");return}
+  $("keyState").textContent="연결 확인 중...";
+  try{const j=await apiPost(key,{model:"claude-sonnet-5-5",max_tokens:16,messages:[{role:"user",content:"ok 라고만 답해"}]});
+    $("keyState").textContent=`연결 성공: 키와 모델이 정상이에요 (${j.model||"claude-sonnet-5-5"})`}
+  catch(e){$("keyState").textContent=`연결 실패: ${e&&e.detail||"알 수 없는 오류"}`}
 };
 SLIM={images:{maxCount:5}};
 $("aiOpts").hidden=false;keyUi();
@@ -558,7 +577,7 @@ async function recognize(file,inBatch){
     showResult(analyze(LAST.list,LAST.over,LAST));
     if(!inBatch)setStatus(`스티커 ${LAST.list.length}장을 읽었어요. 결과를 확인하고 반영하세요. 사진을 더 올리면 이어서 더해요.`);
     return true;
-  }catch(e){setStatus(e&&e.code==="cancelled"?"중지했어요":(AIERR[e&&e.code]||"인식 중 문제가 생겼어요. 다시 시도하세요"));return false}
+  }catch(e){setStatus(e&&e.code==="cancelled"?"중지했어요":((AIERR[e&&e.code]||"인식 중 문제가 생겼어요. 다시 시도하세요")+(e&&e.detail?" ["+e.detail+"]":"")));return false}
   finally{$("aiStopRow").hidden=true;ctl=null}
 }
 $("bPhotoX").onclick=()=>{$("photoBox").hidden=true;$("bPhotoX").hidden=true};
