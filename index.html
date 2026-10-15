@@ -90,12 +90,13 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
 
 <section>
   <h2>사진으로 자동 인식</h2>
-  <div class="row"><button id="bShoot" class="pri">사진 촬영</button><button id="bPhoto">사진 첨부</button><button id="bPhotoX" class="sm" hidden>사진 닫기</button></div>
+  <div class="row"><button id="bShoot" class="pri">사진 촬영</button><button id="bPhoto">사진 첨부 (여러 장 가능)</button><button id="bPhotoX" class="sm" hidden>사진 닫기</button></div>
   <input type="file" id="fShoot" accept="image/*" capture="environment" hidden>
-  <input type="file" id="fPhoto" accept="image/*" hidden>
+  <input type="file" id="fPhoto" accept="image/*" multiple hidden>
   <div class="row" id="aiOpts" hidden>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>위·아래로 나눠 읽기 (손글씨가 작을 때)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oPrecise">정밀 모드 (느림)</label>
+    <label class="scanner" style="margin:0"><input type="checkbox" id="oAuto">경고가 없으면 확인 없이 바로 반영</label>
   </div>
   <details id="keyBox"><summary>사진 인식 설정 (Claude API 키)</summary>
     <div class="hint">키는 이 기기의 브라우저에만 저장돼요. 사진을 읽을 때만 사진이 Anthropic 서버로 전송돼요. 환자 정보가 보이는 사진은 올리지 마세요. 사용 한도를 정한 전용 키를 쓰는 것을 권해요.</div>
@@ -311,7 +312,28 @@ const turn=d=>{if(!curFile)return;rot=(rot+d+360)%360;showPhoto(curFile)};
 $("bRotL").onclick=()=>turn(-90);$("bRotR").onclick=()=>turn(90);$("bAgain").onclick=()=>curFile&&recognize(curFile);
 $("bShoot").onclick=()=>$("fShoot").click();
 $("bPhoto").onclick=()=>$("fPhoto").click();
-for(const id of ["fShoot","fPhoto"])$(id).onchange=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;curFile=f;rot=0;curPhoto=++photoSeq;showPhoto(f);recognize(f)};
+for(const id of ["fShoot","fPhoto"])$(id).onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)runBatch(fs)};
+let stopAll=false,busy=false;
+async function runBatch(files){
+  if(busy){toast("이전 사진을 읽는 중이에요. 끝나면 다시 올려 주세요");return}
+  busy=true;stopAll=false;
+  const MAXN=12,list=files.slice(0,MAXN);let ok=0,fail=0;
+  if(files.length>MAXN)toast(`한 번에 ${MAXN}장까지만 읽어요. 나머지는 다시 올려 주세요`);
+  try{
+    for(let i=0;i<list.length&&!stopAll;i++){
+      curFile=list[i];rot=0;curPhoto=++photoSeq;showPhoto(curFile);
+      if(list.length>1)setStatus(`사진 ${i+1}/${list.length}장 읽는 중... (한 장에 10~60초)`);
+      (await recognize(list[i],list.length>1))?ok++:fail++;
+    }
+  }finally{busy=false}
+  if(list.length<2)return;
+  const stopped=stopAll?" (중간에 중지)":"";
+  if(!LAST){setStatus(`사진 ${list.length}장 처리 끝${stopped}. 읽은 결과가 없어요.`);return}
+  const A=analyze(LAST.list,LAST.over,LAST);
+  if($("oAuto").checked&&!stopAll&&!fail&&!A.warns.length&&A.results.length){
+    applyA(A,i=>A.results[i].n);setStatus(`사진 ${ok}장을 합산해서 바로 반영했어요 (${A.results.length}개 제품). 틀렸으면 제품 칸에서 숫자를 고치거나 '오늘 초기화'를 누르세요.`);return}
+  setStatus(`사진 ${ok}장 성공${fail?`, ${fail}장 실패`:""}${stopped}. 합산 결과를 확인하고 반영하세요.${$("oAuto").checked&&A.warns.length?` 확인할 점 ${A.warns.length}건이 있어서 자동 반영은 하지 않았어요.`:""}`);
+}
 
 // ---------- 사진 자동 인식 (Claude가 스티커·손글씨를 읽고, 이 페이지가 분류·검증) ----------
 let SAMPLE=null,SLIM=null,ctl=null,LAST=null;
@@ -343,7 +365,7 @@ SAMPLE.json=async(prompt,opt)=>{
 SLIM={images:{maxCount:5}};
 $("aiOpts").hidden=false;keyUi();
 if(!getKey()){setStatus("처음에는 위의 '사진 인식 설정'에 Claude API 키를 넣어 주세요. 키 없이도 바코드와 직접 입력은 쓸 수 있어요.")}
-$("bStop").onclick=()=>ctl&&ctl.abort();
+$("bStop").onclick=()=>{stopAll=true;ctl&&ctl.abort()};
 const SERIES=r=>r==="mustang(long)150-200"?"mustang":r;
 const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","GPNCN","genoss"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
 ["k","absolute pro","absolute pro"],["k","in.pact","inpact"],["k","conquest","conquest"],["k","atlas gold","atlas"],["k","athletis","athletis"],["k","mustang","mustang"],["k","jade","jade"],["k","saber","saber"],["k","cleaner","cleaner"],["k","sf 2-lumen","python picc"],["k","2-lumen","python picc"],["k","hemodialysis","perm"],["k","long perm","perm"],["k","long-term","perm"]];
@@ -455,6 +477,16 @@ function analyze(list,over,extra){
   for(const x of results){x.known=!!rowExact(x.row);if(!x.known)warns.push(`엑셀에 '${x.row}' 행이 없어요`)}
   return {groups:[...G.values()],results,warns,un,dateFix,photos:new Set(list.map(s=>s.src||1)).size};
 }
+function applyA(A,valOf){
+  const sp=S.specs[D()]||(S.specs[D()]={});
+  A.results.forEach((x,i)=>{
+    const v=valOf(i);
+    setCount(x.row,v);
+    const base=(x.specs||[]).filter(y=>y.spec!==UNK),have=base.reduce((t,y)=>t+y.n,0);
+    if(v&&base.length)sp[x.row]=base.concat(v>have?[{spec:UNK,n:v-have}]:[]);else delete sp[x.row];
+  });
+  save();toast(`${D()} 개수 ${A.results.length}개 제품을 반영했어요`);LAST=null;$("res").hidden=true;$("onlyUsed").checked=true;render();
+}
 const specTxt=a=>(a&&a.length)?a.map(x=>`${x.spec} ×${x.n}`).join(" · "):"-";
 function showResult(A){
   const opts=S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option>${esc(r)}</option>`).join("");
@@ -470,16 +502,7 @@ function showResult(A){
   $("res").hidden=false;
   if(A.dateFix)$("bDate").onclick=()=>{$("date").value=A.dateFix;hitRow="";loadXlForDate();render();showResult(analyze(LAST.list,LAST.over,LAST))};
   $("bResX").onclick=()=>{LAST=null;$("res").hidden=true;setStatus("합산 결과를 지웠어요. 사진을 다시 올려 주세요.")};
-  $("bApply").onclick=()=>{
-    const sp=S.specs[D()]||(S.specs[D()]={});
-    A.results.forEach((x,i)=>{
-      const v=Math.max(0,parseInt($("res").querySelector(`input[data-i="${i}"]`).value)||0);
-      setCount(x.row,v);
-      const base=(x.specs||[]).filter(y=>y.spec!==UNK),have=base.reduce((t,y)=>t+y.n,0);
-      if(v&&base.length)sp[x.row]=base.concat(v>have?[{spec:UNK,n:v-have}]:[]);else delete sp[x.row];
-    });
-    save();toast(`${D()} 개수 ${A.results.length}개 제품을 반영했어요`);LAST=null;$("res").hidden=true;$("onlyUsed").checked=true;render();
-  };
+  $("bApply").onclick=()=>applyA(A,i=>Math.max(0,parseInt($("res").querySelector(`input[data-i="${i}"]`).value)||0));
   $("res").querySelectorAll("select[data-key]").forEach(s=>s.onchange=()=>{
     if(!s.value||!LAST)return;LAST.over[s.dataset.key]=s.value;
     const g=A.groups.find(x=>x.key===s.dataset.key);if(g){S.prodMap[g.pk]=s.value;save();toast(`'${g.product}' 은(는) '${s.value}' 로 기억했어요`)}
@@ -515,10 +538,10 @@ async function prep(file,tile){
   return out;
 }
 const AIERR={not_granted:"API 키가 없거나 올바르지 않아요. 사진 인식 설정에서 키를 확인하세요",rate_limited:"요청이 많아요. 잠시 뒤에 다시 시도하세요",image_rejected:"이 사진은 읽을 수 없어요. 다른 사진(jpg, png)으로 시도하세요",invalid_json:"결과를 해석하지 못했어요. 다시 시도하거나 더 선명한 사진을 쓰세요",session_expired:"다시 로그인해야 해요",refused:"이 사진은 처리할 수 없어요"};
-async function recognize(file){
-  if(!getKey()){setStatus("먼저 '사진 인식 설정'에 Claude API 키를 넣어 주세요");$("keyBox").open=true;return}
+async function recognize(file,inBatch){
+  if(!getKey()){setStatus("먼저 '사진 인식 설정'에 Claude API 키를 넣어 주세요");$("keyBox").open=true;return false}
   setStatus("사진을 준비하는 중...");
-  let imgs;try{imgs=await prep(file,$("oTile").checked&&SLIM.images.maxCount>=3)}catch(e){setStatus("사진을 열지 못했어요. jpg나 png 파일을 선택하세요");return}
+  let imgs;try{imgs=await prep(file,$("oTile").checked&&SLIM.images.maxCount>=3)}catch(e){setStatus("사진을 열지 못했어요. jpg나 png 파일을 선택하세요");return false}
   imgs=imgs.slice(0,SLIM.images.maxCount);
   ctl=new AbortController();$("aiStopRow").hidden=false;$("res").hidden=true;
   setStatus("스티커와 손글씨를 읽는 중이에요. 10~60초 걸려요.");
@@ -527,14 +550,15 @@ async function recognize(file){
     const obj=Array.isArray(data)?{stickers:data}:(data||{});
     const list=(obj.stickers||[]).filter(x=>x&&typeof x==="object").map(norm);
     const notes=(obj.notes||[]).filter(n=>n&&n.name).map(n=>({name:String(n.name).trim(),value:n.value!=null&&Number.isFinite(+n.value)?Math.round(+n.value):null}));
-    if(!list.length&&!notes.length){setStatus("스티커를 찾지 못했어요. 더 가까이서 밝게 다시 찍어 보세요");return}
+    if(!list.length&&!notes.length){if(!inBatch)setStatus("스티커를 찾지 못했어요. 더 가까이서 밝게 다시 찍어 보세요");return false}
     list.forEach(x=>{x.src=curPhoto});notes.forEach(x=>{x.src=curPhoto});
     if(LAST){LAST.list=LAST.list.filter(x=>x.src!==curPhoto).concat(list);LAST.notes=LAST.notes.filter(x=>x.src!==curPhoto).concat(notes);
       if(!LAST.date)LAST.date=obj.sheet_date||"";LAST.hint=Number(obj.rotate_hint)||0}
     else LAST={list,notes,date:obj.sheet_date||"",hint:Number(obj.rotate_hint)||0,over:{}};
     showResult(analyze(LAST.list,LAST.over,LAST));
-    setStatus(`스티커 ${LAST.list.length}장을 읽었어요. 결과를 확인하고 반영하세요. 사진을 더 올리면 이어서 더해요.`);
-  }catch(e){setStatus(e&&e.code==="cancelled"?"중지했어요":(AIERR[e&&e.code]||"인식 중 문제가 생겼어요. 다시 시도하세요"))}
+    if(!inBatch)setStatus(`스티커 ${LAST.list.length}장을 읽었어요. 결과를 확인하고 반영하세요. 사진을 더 올리면 이어서 더해요.`);
+    return true;
+  }catch(e){setStatus(e&&e.code==="cancelled"?"중지했어요":(AIERR[e&&e.code]||"인식 중 문제가 생겼어요. 다시 시도하세요"));return false}
   finally{$("aiStopRow").hidden=true;ctl=null}
 }
 $("bPhotoX").onclick=()=>{$("photoBox").hidden=true;$("bPhotoX").hidden=true};
