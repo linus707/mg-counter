@@ -99,6 +99,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>꼼꼼히 읽기 (느리지만 작은 바코드도 찾아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oOcr" checked>인쇄된 글자도 읽기 (느림 · 처음 한 번 약 7MB 내려받아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oPP" checked>정밀 글자 인식 사용 (오픈소스 PaddleOCR · 처음 한 번 약 26MB · 규격을 더 정확히 읽어요)</label>
+    <label class="scanner" style="margin:0"><input type="checkbox" id="oHW">손글씨 숫자도 읽기 (실험 기능 · 지금은 절반쯤만 맞아요 · 켜면 큰 번호를 개수에 반영)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTess">기존 글자 인식(Tesseract)도 함께 쓰기 (더 느려요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAI">AI로 정확도 높이기 (손글씨·놓친 스티커 보강 · API 키 필요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAuto">경고가 없으면 확인 없이 바로 반영</label>
@@ -405,7 +406,7 @@ function analyze(list,over,extra){
     if(!row)continue;
     const ser=SERIES(row);if(!SR.has(ser))SR.set(ser,{ser,src:new Map(),rows:{},specs:{}});
     const r=SR.get(ser);if(!r.src.has(sid))r.src.set(sid,{nums:[],circ:[],n:0});
-    const sc=r.src.get(sid);sc.n++;sc.nums.push(...s.written);if(s.circled!=null)sc.circ.push(s.circled);
+    const sc=r.src.get(sid);sc.n++;sc.nums.push(...s.written);if(s.hwRead)sc.ocrNums=true;if(s.circled!=null)sc.circ.push(s.circled);
     r.rows[row]=(r.rows[row]||0)+1;
     const sk=`${row}|${sp}`;(r.specs[sk]||(r.specs[sk]={row,spec:sp,n:0})).n++;
   }
@@ -426,10 +427,13 @@ function analyze(list,over,extra){
       hasNums=true;const mx=nums[nums.length-1];
       const miss=[];for(let i=nums[0];i<mx;i++)if(!nums.includes(i))miss.push(i);
       const dup=[...new Set(sc.nums.filter((n,i)=>sc.nums.indexOf(n)!==i))];
-      if(miss.length)warns.push(`${r.ser}: ${tag}번호 ${miss.join(", ")} 이(가) 비어요. 스티커가 안 붙었거나 숫자를 잘못 읽었을 수 있어요`);
-      if(dup.length)warns.push(`${r.ser}: ${tag}숫자 ${dup.join(", ")} 이(가) 겹쳐요. 잘못 읽었을 수 있어요`);
+      if(miss.length&&!sc.ocrNums)warns.push(`${r.ser}: ${tag}번호 ${miss.join(", ")} 이(가) 비어요. 스티커가 안 붙었거나 숫자를 잘못 읽었을 수 있어요`);
+      if(dup.length&&!sc.ocrNums)warns.push(`${r.ser}: ${tag}숫자 ${dup.join(", ")} 이(가) 겹쳐요. 잘못 읽었을 수 있어요`);
       if(sc.circ.length&&Math.max(...sc.circ)!==mx)warns.push(`${r.ser}: ${tag}동그라미 숫자(${sc.circ.join(", ")})와 가장 큰 숫자(${mx})가 달라요`);
-      total+=mx;parts.push(`${r.src.size>1?"사진 "+sid+" ":""}손글씨 최대 ${mx}`);
+      // 손글씨 숫자는 일부만 읽힐 수 있어서 스티커 장수보다 작게 나오지 않게 해요. 숫자가 스티커보다 훨씬 크면 확인을 요청해요.
+      const bad=sc.ocrNums&&mx>sc.n*2+3,use=bad?sc.n:Math.max(mx,sc.n);
+      if(bad)warns.push(`${r.ser}: ${tag}자동으로 읽은 손글씨 숫자(${mx})가 스티커(${sc.n}장)보다 너무 커서 쓰지 않았어요. 사진과 비교해 확인하세요`);
+      total+=use;parts.push(`${r.src.size>1?"사진 "+sid+" ":""}손글씨 ${mx}${sc.ocrNums?"(자동 인식)":""} · 스티커 ${sc.n}장 중 큰 값`);
     }
     if(!hasNums){
       for(const row of Object.keys(r.rows))results.push({row,n:r.rows[row],basis:`스티커 ${r.rows[row]}장 (손글씨 없음)`,specs:specList(r,row,r.rows[row])});
@@ -539,6 +543,7 @@ const SEED_G={
 "08717648114854":{maker:"Abbott",product:"Absolute Pro OTW",spec:"8.0mm x 60mm 80cm",row:"absolute pro"},
 "00763000136826":{maker:"Medtronic",product:"IN.PACT Admiral",spec:"REF SBI07008008S",row:"inpact"},
 "06934955907197":{maker:"",product:"JADE OTW .035",spec:"7.0mm x 180mm 75cm",row:"jade"},
+"00801741026430":{maker:"BD",product:"PowerPort ClearVUE isp",spec:"REF 1608062",row:"human port"},
 "00801741139918":{maker:"BD",product:"PowerPICC Catheter",spec:"REF 8275335",row:"picc(DL)"},
 "00801741060588":{maker:"BD",product:"Conquest 40",spec:"8mm x 100mm",row:"conquest"},
 "00801741060663":{maker:"BD",product:"Conquest 40",spec:"12mm x 40mm",row:"conquest"},
@@ -696,6 +701,23 @@ async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
   for(const l of L){let u=l.x,v=l.y;if(rot===90){u=l.y;v=c.width-l.x}else if(rot===270){u=c.height-l.y;v=l.x}
     out.push({text:l.text,x:u/sc+sx,y:v/sc+sy,conf:l.conf})}
   return out;
+}
+// 손글씨 숫자: 스티커 옆에 적은 누적 번호(1, 2, 3 …)를 읽어서 가장 가까운 스티커에 붙여요. 가장 큰 번호가 그날 개수예요.
+async function readHandwriting(bmp,lines,list){
+  if(!window.PPOCR||!PPOCR.handwriting)return [];
+  const W=bmp.width,H=bmp.height,M=Math.max(W,H),sc=Math.min(1,1920/M),c=document.createElement("canvas");
+  c.width=Math.round(W*sc);c.height=Math.round(H*sc);c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+  const pr=lines.map(l=>({text:l.text,conf:l.conf||.7,x:l.x*sc,y:l.y*sc,w:(l.w||60)*sc,h:(l.h||20)*sc}));
+  const ex=list.filter(s=>s.size).map(s=>({x:s.x*sc,y:s.y*sc,r:s.size*sc*.3}));
+  const hw=await PPOCR.handwriting(c,pr,ex);
+  return hw.filter(h=>h.conf>=.75&&h.num>=1&&h.num<=40&&h.h>=M*sc*.012).map(h=>({num:h.num,x:h.x/sc,y:h.y/sc,conf:h.conf}));
+}
+function attachNumbers(stickers,nums,W,H){
+  const R=.13*Math.max(W,H),pairs=[];
+  nums.forEach((n,i)=>stickers.forEach((s,j)=>{if(s.hw)return;const d=Math.hypot(n.x-s.x,n.y-s.y);if(d<R)pairs.push([d,i,j])}));
+  pairs.sort((a,b)=>a[0]-b[0]);const ui=new Set(),uj=new Set();let k=0;
+  for(const [d,i,j] of pairs){if(ui.has(i)||uj.has(j))continue;ui.add(i);uj.add(j);stickers[j].written=[nums[i].num];stickers[j].hwRead=true;k++}
+  return k;
 }
 // 바코드는 읽었지만 제품표에 없는 스티커: 가까운 글자에서 REF·이름·규격을 찾아 채워요 (예: MUSTANG 6.0mm x 100mm)
 function enrichSpecs(list,lines,W,H){
@@ -909,7 +931,12 @@ async function ocrStage(bmp,list,say){
   enrichSpecs(list,lines,W,H);
   const refExtra=leftoverOcr(list,ocrStickers(lines),W,H);
   const nameExtra=leftoverName(list.concat(refExtra),ocrNameStickers(lines,W,H),W,H);
-  return refExtra.concat(nameExtra);
+  const extra=refExtra.concat(nameExtra);
+  if(ppOk&&!stopAll&&$("oHW")&&$("oHW").checked){
+    try{say("손글씨 숫자를 읽는 중이에요...");const nums=await readHandwriting(bmp,lines,list),k=attachNumbers(list.concat(extra),nums,W,H);window.__hwnums=nums;say(`손글씨 숫자 ${nums.length}개를 읽고 ${k}개를 스티커에 붙였어요`)}
+    catch(e){console.warn("손글씨",e)}
+  }
+  return extra;
 }
 function showInterim(list,pid){
   const cur=LAST?LAST.list.filter(x=>x.src!==pid):[];
