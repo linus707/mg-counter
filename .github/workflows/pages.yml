@@ -24,7 +24,8 @@ jobs:
           cp index.html _site/
           cp -r ocr _site/ocr
           cp -r ocr2 _site/ocr2
-          mkdir _site/v2
+          mkdir _site/v1 _site/v2
+          cp v1/index.html _site/v1/index.html
           cp v2/index.html _site/v2/index.html
       - uses: actions/configure-pages@v5
         with:

@@ -98,6 +98,8 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <div class="row" id="aiOpts">
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>꼼꼼히 읽기 (느리지만 작은 바코드도 찾아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oOcr" checked>인쇄된 글자도 읽기 (느림 · 처음 한 번 약 7MB 내려받아요)</label>
+    <label class="scanner" style="margin:0"><input type="checkbox" id="oPP" checked>정밀 글자 인식 사용 (오픈소스 PaddleOCR · 처음 한 번 약 26MB · 규격을 더 정확히 읽어요)</label>
+    <label class="scanner" style="margin:0"><input type="checkbox" id="oTess">기존 글자 인식(Tesseract)도 함께 쓰기 (더 느려요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAI">AI로 정확도 높이기 (손글씨·놓친 스티커 보강 · API 키 필요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAuto">경고가 없으면 확인 없이 바로 반영</label>
   </div>
@@ -119,7 +121,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   </div>
 </section>
 
-<section>
+<section hidden>   <!-- 바코드 직접 입력·카메라 스캔은 사진 인식으로 대체해서 숨겼어요 -->
   <h2>바코드 입력으로 +1</h2>
   <div class="row"><button class="pri" id="bScan">카메라로 스캔</button><button id="bTorch" class="sm" hidden>플래시</button></div>
   <div id="cam"><video id="v" playsinline muted></video><div class="frame"></div><div id="flash"></div></div>
@@ -680,6 +682,37 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
   }
   return lines;
 }
+// ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
+async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
+  await loadScript("ocr2/ppocr.js").catch(()=>{});
+  if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
+  rot=rot||0;
+  const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
+  c.width=rot?ch:cw;c.height=rot?cw:ch;
+  const x=c.getContext("2d");
+  if(rot===90){x.translate(c.width,0);x.rotate(Math.PI/2)}else if(rot===270){x.translate(0,c.height);x.rotate(-Math.PI/2)}
+  x.drawImage(bmp,sx,sy,sw,sh,0,0,cw,ch);
+  const L=await PPOCR.recognize(c,{detSide:Math.max(c.width,c.height)}),out=[];
+  for(const l of L){let u=l.x,v=l.y;if(rot===90){u=l.y;v=c.width-l.x}else if(rot===270){u=c.height-l.y;v=l.x}
+    out.push({text:l.text,x:u/sc+sx,y:v/sc+sy,conf:l.conf})}
+  return out;
+}
+// 바코드는 읽었지만 제품표에 없는 스티커: 가까운 글자에서 REF·이름·규격을 찾아 채워요 (예: MUSTANG 6.0mm x 100mm)
+function enrichSpecs(list,lines,W,H){
+  const R=.16*Math.max(W,H);let n=0;
+  for(const s of list){
+    if(s.ocr||!/^GTIN \d+$/.test(s.product||""))continue;
+    const near=lines.map(l=>({l,d:Math.hypot(l.x-s.x,l.y-s.y)})).filter(o=>o.d<R).sort((a,b)=>a.d-b.d).map(o=>o.l);
+    let got=null;
+    for(const l of near){const t=l.text.toUpperCase().replace(/\s+/g,"");for(const [re,kind] of OCR_RX){re.lastIndex=0;const m=re.exec(t);if(m){const g=stickerFromRef(kind,m[0],l.x,l.y);if(!/^REF /.test(g.spec)){got=g;break}}}if(got)break}
+    if(!got){
+      const t=near.map(l=>l.text).join(" ").replace(/[_*~]/g,"x"),nm=/MUSTANG|ATHLETIS/i.exec(t),sp=/(\d{1,2}(?:\.\d)?)\s*mm\s*x\s*(\d{2,3})\s*mm/i.exec(t);
+      if(nm&&sp){const p=nm[0].toUpperCase();got={maker:"Boston Scientific",product:p==="MUSTANG"?"MUSTANG":"Athletis",spec:`${(+sp[1]).toFixed(1)}mm x ${+sp[2]}mm 75cm`,ref:"",length_mm:+sp[2]}}
+    }
+    if(got){s.maker=got.maker;s.product=got.product;s.spec=got.spec;s.ref=got.ref||s.ref;s.length_mm=got.length_mm;s.enriched=true;n++}
+  }
+  return n;
+}
 // 엑셀 A열의 제품명으로 사진 속 글자를 찾는 규칙 (REF 규칙이 없는 제품도 이름으로 찾아요)
 const NAME_ALIAS={"inpact":["in.pact","inpact"],"emboshere":["embosphere","emboshere"],"atlas":["atlas gold"],"ivc filter bd denali":["denali"],"celsite port":["celsite"],"python picc":["python"],"genoss picc":["genoss picc"]};
 const NAME_STOP=new Set(["filter","snare","port","picc","drain","wire","plus","long","stent","smart","human","deltec","argyle","power","total","fortrex"]);
@@ -700,7 +733,7 @@ function ocrNameStickers(lines,W,H){
   for(const l of lines){
     const t=" "+l.text.toLowerCase().replace(/[™®]/g,"").replace(/\s+/g," ")+" ";
     for(const [k,row] of keys){
-      if(t.includes(k)&&/[^a-z0-9]/.test(t[t.indexOf(k)-1]||" ")){
+      if(t.includes(k)&&(k.length>=6||/[^a-z0-9]/.test(t[t.indexOf(k)-1]||" "))){
         if(!out.some(o=>o.nameRow===row&&Math.hypot(o.x-l.x,o.y-l.y)<R))out.push({maker:"",product:row,spec:"",ref:"",lot:"",exp:"",length_mm:null,gtin:"",key:`name|${row}|${Math.round(l.x)}|${Math.round(l.y)}`,written:[],circled:null,row,conf:"low",x:l.x,y:l.y,ocr:true,byName:true,nameRow:row});
         break;   // 한 줄에서는 가장 긴(가장 구체적인) 이름 하나만
       }
@@ -717,7 +750,8 @@ function stickerFromRef(kind,ref0,x,y){
   if(kind==="boston"){ref=ref.replace(/[Oo]/g,"0").replace(/[Il]/g,"1").replace(/S/g,"5").replace(/B/g,"8");
     maker="Boston Scientific";product=ref.startsWith("H7493917")?"MUSTANG":"Athletis";
     const m=ref.match(/^H7493(?:917|934)\d(\d{2})(\d{2})70$/);if(m){len=+m[2]*10;spec=`${+m[1]}.0mm x ${len}mm 75cm`}else spec=`REF ${ref}`}
-  else if(kind==="cqf"){maker="BD";product="Conquest 40";spec=REF_SPEC[ref]||cqfSpec(ref)||`REF ${ref}`}
+  else if(kind==="cqf"){maker="BD";product="Conquest 40";if(/^CQF7[68]/.test(ref)&&cqfSpec("CQF75"+ref.slice(5)))ref="CQF75"+ref.slice(5);   /* 글자 인식이 5를 6·8로 잘못 읽는 경우 바로잡아요 */
+    spec=REF_SPEC[ref]||cqfSpec(ref)||`REF ${ref}`}
   else if(kind==="atg"){maker="BD";product="Atlas Gold";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="abbott"){ref=ref.replace(/^1011917-?/,"1011917-");maker="Abbott";product="Absolute Pro OTW";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="genoss"){const m=ref.match(/GPNCN-?(\d{2})-?(\d{3})-?(\d{3})/);maker="Genoss";product="PTA Balloon";spec=m?`${+m[1]}mm x ${+m[2]}mm ${+m[3]}cm`:`REF ${ref}`;if(m)ref=`GPNCN-${m[1]}-${m[2]}-${m[3]}`}
@@ -850,13 +884,29 @@ function aiToItems(out,known,pid){
 // 한 단계가 실패해도 멈추지 않고 나머지 결과로 계속 진행해요.
 function pipeShow(P){$("pipe").textContent=`바코드 ${P.bar} · 글자 ${P.ocr} · AI ${P.ai}`}
 async function ocrStage(bmp,list,say){
-  const w=await ocrWorker(say);
   const W=bmp.width,H=bmp.height,lines=[];
+  const usePP=$("oPP")&&$("oPP").checked,useT=!usePP||($("oTess")&&$("oTess").checked);
   const passes=[[0,0,W,H,2600]];
   if($("oTile").checked){if(H>=W){passes.push([0,0,W,H*.55,2200],[0,H*.45,W,H*.55,2200])}else{passes.push([0,0,W*.55,H,2200],[W*.45,0,W*.55,H,2200])}}
-  for(let k=0;k<passes.length&&!stopAll;k++){say(`인쇄된 글자를 읽는 중이에요... ${k+1}/${passes.length}`);lines.push(...await ocrPass(w,bmp,...passes[k]))}
-  if(!stopAll&&!ocrStickers(lines).length){for(const rot of [90,270]){if(stopAll)break;say(`글자가 안 보여서 사진을 ${rot}도 돌려서 다시 읽는 중이에요...`);lines.push(...await ocrPass(w,bmp,0,0,W,H,2600,rot))}}
+  let ppOk=false;
+  if(usePP){
+    try{
+      say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
+      await loadScript("ocr2/ppocr.js");await PPOCR.load(say);
+      const pp=[[0,0,W,H,1920]];
+      if($("oTile").checked){if(H>=W){pp.push([0,0,W,H*.55,1920],[0,H*.45,W,H*.55,1920])}else{pp.push([0,0,W*.55,H,1920],[W*.45,0,W*.55,H,1920])}}
+      for(let k=0;k<pp.length&&!stopAll;k++){say(`정밀 글자 인식 중이에요... ${k+1}/${pp.length}`);lines.push(...await ppPass(bmp,...pp[k]))}
+      if(!stopAll&&!ocrStickers(lines).length){for(const rot of [90,270]){if(stopAll)break;say(`글자가 안 보여서 사진을 ${rot}도 돌려서 다시 읽는 중이에요...`);lines.push(...await ppPass(bmp,0,0,W,H,1920,rot))}}
+      ppOk=true;
+    }catch(e){say("정밀 글자 인식을 쓰지 못해 기존 방식으로 읽어요: "+(e&&e.message||e));console.warn(e)}
+  }
+  if(useT||!ppOk){
+    const w=await ocrWorker(say);
+    for(let k=0;k<passes.length&&!stopAll;k++){say(`인쇄된 글자를 읽는 중이에요... ${k+1}/${passes.length}`);lines.push(...await ocrPass(w,bmp,...passes[k]))}
+    if(!stopAll&&!ocrStickers(lines).length){for(const rot of [90,270]){if(stopAll)break;say(`글자가 안 보여서 사진을 ${rot}도 돌려서 다시 읽는 중이에요...`);lines.push(...await ocrPass(w,bmp,0,0,W,H,2600,rot))}}
+  }
   if(stopAll)return [];
+  enrichSpecs(list,lines,W,H);
   const refExtra=leftoverOcr(list,ocrStickers(lines),W,H);
   const nameExtra=leftoverName(list.concat(refExtra),ocrNameStickers(lines,W,H),W,H);
   return refExtra.concat(nameExtra);
