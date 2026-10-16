@@ -772,11 +772,24 @@ async function apiRetry(key,body,signal){
   }
   throw last;
 }
+function keyHint(e){
+  if(!e)return "";const st=e.status,d=String(e.detail||"");
+  if(st===401)return " → 키가 틀렸거나 지워진 키예요. 콘솔에서 새 키를 만들어 처음부터 끝까지 복사해 다시 저장해 주세요(앞뒤 공백 주의).";
+  if(st===403)return " → 이 키로는 사용 권한이 없어요. 콘솔의 Workspace/권한 설정을 확인해 주세요.";
+  if(st===400&&/credit|balance/i.test(d))return " → 크레딧이 0원이에요. console.anthropic.com → Plans & Billing 에서 최소 금액($5)을 충전하면 바로 돼요. (키만 만들고 충전을 안 하면 가장 흔히 이 오류가 나요)";
+  if(st===404)return " → 이 계정에서 쓸 수 없는 모델이에요. 다른 모델로 자동으로 다시 시도해 볼게요.";
+  if(st===429)return " → 요청이 너무 많거나 사용 한도에 걸렸어요. 1분 뒤 다시 눌러 주세요.";
+  if(e.code==="upstream_error")return " → 병원/회사 망이나 보안 프로그램이 api.anthropic.com 을 막았을 수 있어요. 휴대폰 데이터(LTE/5G)로 바꿔서 다시 해보세요.";
+  return "";
+}
 $("bKeyTest").onclick=async()=>{
   const key=getKey();if(!key){toast("먼저 키를 저장하세요");return}
-  $("keyState").textContent="연결 확인 중...";
-  try{const j=await apiPost(key,{model:"claude-sonnet-5-5",max_tokens:16,messages:[{role:"user",content:"ok 라고만 답해"}]});$("keyState").textContent=`연결 성공: 키와 모델이 정상이에요 (${j.model||"claude-sonnet-5-5"})`}
-  catch(e){$("keyState").textContent=`연결 실패: ${e&&e.detail||"알 수 없는 오류"}`}
+  $("keyState").textContent="연결 확인 중...";let last=null;
+  for(const model of ["claude-sonnet-5-5","claude-haiku-5-5","claude-sonnet-4-5"]){
+    try{const j=await apiPost(key,{model,max_tokens:16,messages:[{role:"user",content:"ok 라고만 답해"}]});$("keyState").textContent=`연결 성공: 키가 정상이에요 (모델 ${j.model||model})`;return}
+    catch(e){last=e;if(!(e&&e.status===404))break}
+  }
+  $("keyState").textContent=`연결 실패: ${last&&last.detail||"알 수 없는 오류"}${keyHint(last)}`;
 };
 async function aiImages(bmp){
   const W=bmp.width,H=bmp.height,cut=(sx,sy,sw,sh)=>{const k=Math.min(1,2400/Math.max(sw,sh)),c=document.createElement("canvas");c.width=Math.round(sw*k);c.height=Math.round(sh*k);c.getContext("2d").drawImage(bmp,sx,sy,sw,sh,0,0,c.width,c.height);return new Promise(r=>c.toBlob(r,"image/jpeg",.9))};
