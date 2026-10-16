@@ -484,19 +484,24 @@ function showResult(A){
   const opts=S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option>${esc(r)}</option>`).join("");
   const g=A.groups.map(x=>`<tr><td>${esc(x.product)}</td><td>${esc(x.spec)}</td><td class="n">${x.n}</td><td class="n">${x.nums.length?esc([...new Set(x.nums)].join(", ")):"-"}</td><td>${x.row?esc(x.row):`<select data-key="${esc(x.key)}"><option value="">선택…</option>${opts}</select><input data-spec="${esc(x.key)}" placeholder="규격(선택)" aria-label="규격" style="width:110px;margin-top:4px">`}</td></tr>`).join("");
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
+  const SL=A.groups.map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n})).sort((a,b)=>a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true}));
+  const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div><div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button></div>`;
   let eq=0,df=0,nx=0;A.results.forEach(x=>{const ex=XL[x.row];if(ex==null||ex==="")nx++;else if(Number(ex)===x.n)eq++;else df++});
   const cmp=Object.keys(XL).length?`엑셀 ${D().slice(5).replace("-","/")} 열과 대조: 일치 ${eq} · 다름 ${df} · 엑셀에 값 없음 ${nx}`+(()=>{const only=Object.keys(XL).filter(k=>!A.results.some(x=>x.row===k)&&Number(XL[k])>0);return only.length?` · 사진에 안 보이는 엑셀 제품 ${only.length}개 (${only.slice(0,6).join(", ")}${only.length>6?" …":""})`:""})():"엑셀을 불러오면 사진 결과와 엑셀 값을 대조해 줘요.";
   $("res").innerHTML=`<div class="hint">사진 ${A.photos}장을 합산하고 있어요. 사진을 더 올리면 이어서 더해요.</div>
+  ${simple}
+  <details class="more"><summary>자세히 보기 · 엑셀 행 지정 · 개수 고치기</summary>
   <div class="resh">제품명·규격별 인식 결과</div>
   <div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th>스티커</th><th>손글씨</th><th>엑셀 행</th></tr></thead><tbody>${g}</tbody></table></div>
   <div class="resh">제품별 개수 (규격별 내역 포함, 숫자는 고칠 수 있어요)</div>
   <div class="hint">${esc(cmp)}</div>
   <div class="tblwrap"><table class="tbl"><thead><tr><th>제품</th><th>개수</th><th>규격별 내역</th><th>근거</th><th>엑셀 기존값</th></tr></thead><tbody>${r||'<tr><td colspan="5">반영할 제품이 없어요</td></tr>'}</tbody></table></div>
-  <div class="hint">바코드가 없는 제품과 손글씨 숫자는 읽지 못해요. 시트에 적힌 숫자가 더 크면 위 표의 개수를 고쳐 주세요.</div>
+  <div class="hint">바코드가 없는 제품과 손글씨 숫자는 읽지 못해요. 시트에 적힌 숫자가 더 크면 위 표의 개수를 고쳐 주세요.</div></details>
   ${A.warns.length?`<ul class="warns">${A.warns.map(w=>`<li>${esc(w)}</li>`).join("")}</ul>`:'<div class="hint ok">확인할 점이 없어요.</div>'}
   <div class="row">${A.dateFix?`<button id="bDate">날짜를 ${+A.dateFix.slice(5,7)}/${+A.dateFix.slice(8)}로 바꾸기</button>`:""}<button class="pri" id="bApply"${A.results.length?"":" disabled"}>개수에 반영</button><button id="bResX" class="sm">처음부터 다시</button></div>`;
   $("res").hidden=false;
   if(A.dateFix)$("bDate").onclick=()=>{$("date").value=A.dateFix;hitRow="";loadXlForDate();render();showResult(analyze(LAST.list,LAST.over,LAST))};
+  $("bCopyS").onclick=()=>{const t="제품명\t규격\t개수\n"+SL.map(x=>`${x.p}\t${x.sp}\t${x.n}`).join("\n");(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요. 엑셀에 붙여넣으세요")}catch(e){toast("복사하지 못했어요")}ta.remove()})};
   $("bResX").onclick=()=>{LAST=null;S.last=null;save();$("res").hidden=true;setStatus("합산 결과를 지웠어요. 사진을 다시 올려 주세요.")};
   $("bApply").onclick=()=>applyA(A,i=>Math.max(0,parseInt($("res").querySelector(`input[data-i="${i}"]`).value)||0));
   $("res").querySelectorAll("select[data-key]").forEach(s=>s.onchange=()=>{
