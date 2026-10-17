@@ -55,6 +55,7 @@ dialog{background:var(--card);color:var(--fg);border:1px solid var(--line);borde
 dialog::backdrop{background:#000a}
 textarea{width:100%;height:140px;font:13px/1.4 monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px}
 .scanner{display:flex;align-items:center;gap:6px;color:var(--sub);font-size:14px;margin-top:8px}
+.trow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line,#e3e6ea)}.tname{min-width:0}.tspec{color:var(--sub);font-size:13px}.tmark{font-size:24px;letter-spacing:2px;min-height:30px}.tctl{display:flex;align-items:center;gap:6px}.tn{min-width:30px;text-align:center;font-weight:700;font-size:18px}.tctl button{min-width:40px;min-height:40px}
 .hwgrid{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}.hwcell{display:flex;flex-direction:column;align-items:center;gap:4px;border:1px solid var(--line,#ccd);border-radius:8px;padding:6px;background:var(--card,#fff)}.hwth{display:flex;gap:2px;background:#fff;padding:2px;border-radius:4px}.hwth canvas{width:40px;height:40px;image-rendering:pixelated}.hwcell input{width:56px;text-align:center;font-size:18px}
 .diffm{color:var(--warn);font-weight:700}
 .cov td,.cov th{padding:4px 6px}
@@ -83,6 +84,15 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <h1>morning-garden 카운터</h1>
   <div class="tot">오늘 총 <b id="tAll">0</b>개 · <span id="tKind">0</span>종</div>
 </header>
+
+<section id="tallySec">
+  <h2>직접 센 제품 · 바를 정(正) 카운터</h2>
+  <div class="hint">바코드가 없거나 손으로 센 제품(예: Genoss 7x200mm, Safety)은 여기서 <b>＋</b>를 누르세요. 막대 하나가 1개예요. 一 丅 下 止 正 = 5개!</div>
+  <div class="row"><input id="tName" list="tNames" placeholder="제품명 (예: Genoss)" autocomplete="off"><input id="tSpec" placeholder="규격 (예: 7x200mm)" autocomplete="off"><button id="tAdd" class="sm pri">추가</button></div>
+  <datalist id="tNames"></datalist>
+  <div id="tList"></div>
+  <div class="row"><button id="tCopy" class="sm">표 복사</button><button id="tClear" class="sm">전부 0으로</button></div>
+</section>
 
 <section>
   <h2>날짜와 엑셀</h2>
@@ -205,10 +215,10 @@ const SEED={"08714729973959":"athletis","08714729974215":"athletis","08714729973
 "08714729793762":"mustang","08714729793779":"mustang","08714729793854":"mustang","08714729793441":"mustang","08714729793960":"mustang","08714729794509":"mustang(long)150-200",
 "00801741060519":"conquest","00801741060571":"conquest","00801741060755":"atlas","08717648114854":"absolute pro","00763000136826":"inpact","06934955907197":"jade"};
 
-let S={rows:DEFAULT_ROWS.slice(),counts:{},map:{},hist:[],prodMap:{},specs:{},gtinCat:{},last:null};
+let S={rows:DEFAULT_ROWS.slice(),counts:{},map:{},hist:[],prodMap:{},specs:{},gtinCat:{},last:null,tally:[]};
 try{const j=JSON.parse(localStorage.getItem(KEY)||"{}");S={...S,...j}}catch(e){}
 Object.keys(SEED).forEach(k=>{if(!S.map[k])S.map[k]=SEED[k]});
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({rows:S.rows,counts:S.counts,map:S.map,prodMap:S.prodMap,specs:S.specs,gtinCat:S.gtinCat,last:S.last,hist:S.hist.slice(-300)}))}catch(e){}};
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify({rows:S.rows,counts:S.counts,map:S.map,prodMap:S.prodMap,specs:S.specs,gtinCat:S.gtinCat,last:S.last,tally:S.tally||[],hist:S.hist.slice(-300)}))}catch(e){}};
 function toast(t){const m=$("msg");m.textContent=t;m.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>m.classList.remove("on"),2800)}
 
 const today=()=>{const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`};
@@ -494,7 +504,7 @@ function showResult(A){
   const opts='<option value="__skip__">(집계에서 제외)</option>'+S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option>${esc(r)}</option>`).join("");
   const g=A.groups.map(x=>`<tr><td>${esc(x.product)}</td><td>${esc(x.spec)}</td><td class="n">${x.n}</td><td class="n">${x.nums.length?esc([...new Set(x.nums)].join(", ")):"-"}</td><td>${x.row?esc(x.row):`<select data-key="${esc(x.key)}"><option value="">선택…</option>${opts}</select><input data-spec="${esc(x.key)}" placeholder="규격(선택)" aria-label="규격" style="width:110px;margin-top:4px">`}</td></tr>`).join("");
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
-  const SL=A.groups.map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
+  const SL=A.groups.map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).concat(tallyRows().map(r=>({...r,p:r.p+" (직접)"}))).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
   const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div><div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button></div>`;
   // 날짜(구간)별 표: 제품·규격 × 구간. 구간이 둘 이상일 때만 보여줘요.
   const SECK=x=>`${x.src||1}|${x.sec||1}`,secs=new Map(),cell={};
@@ -1164,6 +1174,33 @@ $("bCopy").onclick=async()=>{
 render();
 keyUi();
 restoreLast();
+// ---------- 바를 정(正) 카운터: 직접 센 제품 ----------
+const tallyStr=n=>"正".repeat(Math.floor(n/5))+["","一","丅","下","止"][n%5];
+function renderTally(){
+  S.tally=S.tally||[];
+  $("tNames").innerHTML=S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option value="${esc(r)}">`).join("");
+  $("tList").innerHTML=S.tally.length?S.tally.map((t,i)=>`<div class="trow"><div class="tname"><b>${esc(t.name)}</b>${t.spec?` <span class="tspec">${esc(t.spec)}</span>`:""}<div class="tmark">${esc(tallyStr(t.n))||"·"}</div></div><div class="tctl"><button class="sm" data-d="-1" data-i="${i}" aria-label="하나 빼기">−</button><span class="tn">${t.n}</span><button class="sm pri" data-d="1" data-i="${i}" aria-label="하나 더하기">＋</button><button class="sm" data-x="${i}" aria-label="삭제">✕</button></div></div>`).join(""):'<div class="hint">아직 없어요. 위에 제품명과 규격을 적고 추가를 누르세요.</div>';
+  $("tList").querySelectorAll("button[data-d]").forEach(b=>b.onclick=()=>{const t=S.tally[+b.dataset.i];t.n=Math.max(0,t.n+ +b.dataset.d);save();renderTally();if(LAST)showResult(analyze(LAST.list,LAST.over,LAST))});
+  $("tList").querySelectorAll("button[data-x]").forEach(b=>b.onclick=()=>{S.tally.splice(+b.dataset.x,1);save();renderTally();if(LAST)showResult(analyze(LAST.list,LAST.over,LAST))});
+}
+function tallyRows(){   // 결과표에 합칠 행: 엑셀 행 순서에 맞춰 정렬하기 위한 순서값 포함
+  return (S.tally||[]).filter(t=>t.n>0).map(t=>{const row=rowExact(t.name),i=row?S.rows.indexOf(row):-1;return {p:t.name,sp:t.spec||"-",n:t.n,o:i<0?1e6-1:i,tally:true}});
+}
+$("tAdd").onclick=()=>{
+  const name=$("tName").value.trim(),spec=$("tSpec").value.trim().replace(/\s+/g,"");
+  if(!name){toast("제품명을 적어 주세요");return}
+  const ex=S.tally.find(t=>t.name.toLowerCase()===name.toLowerCase()&&(t.spec||"").toLowerCase()===spec.toLowerCase());
+  if(ex)toast("이미 있어요. 아래에서 ＋를 누르세요");else S.tally.push({name,spec,n:0});
+  $("tName").value="";$("tSpec").value="";save();renderTally();
+};
+$("tName").onkeydown=$("tSpec").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("tAdd").click()}};
+$("tClear").onclick=()=>{if(confirm("모든 카운터를 0으로 되돌릴까요? (제품 목록은 그대로예요)")){S.tally.forEach(t=>t.n=0);save();renderTally()}};
+$("tCopy").onclick=()=>{
+  const rows=tallyRows().sort((a,b)=>a.o-b.o||a.p.localeCompare(b.p)),t="제품명\t규격\t개수\n"+rows.map(r=>`${r.p}\t${r.sp}\t${r.n}`).join("\n");
+  if(!rows.length){toast("센 제품이 아직 없어요");return}
+  (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요")}catch(e){toast("복사하지 못했어요")}ta.remove()});
+};
+renderTally();
 </script>
 
 </body>
