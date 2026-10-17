@@ -166,4 +166,37 @@
       return {text:t,num:+t,conf:p,x:(G.x0+G.x1)/2,y:(G.y0+G.y1)/2,w:G.x1-G.x0,h:G.h}});
   }
   window.PPOCR={load,recognize,handwriting};
+
+  // ---------- 날짜 구간 나누기: 시트에 손으로 그은 가로 구분선 찾기 ----------
+  // 길고 가는 (두께 6px 이하) 가로 잉크 선만 찾아요. 반환: [{x0,x1,ya,yb}] (ya: 왼쪽 끝 y, yb: 오른쪽 끝 y) — canvas 좌표
+  async function separators(canvas){
+    const W=canvas.width,H=canvas.height,n=W*H;
+    const d=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H).data,g=new Uint8Array(n);
+    for(let i=0,p=0;i<n;i++,p+=4)g[i]=(d[p]*.3+d[p+1]*.59+d[p+2]*.11)|0;
+    const I=new Float64Array((W+1)*(H+1));
+    for(let y=0;y<H;y++){let row=0;for(let x=0;x<W;x++){row+=g[y*W+x];I[(y+1)*(W+1)+x+1]=I[y*(W+1)+x+1]+row}}
+    const hw=Math.max(12,Math.round(Math.max(W,H)*.012)),ink=new Uint8Array(n);
+    for(let y=0;y<H;y++){const y0=Math.max(0,y-hw),y1=Math.min(H,y+hw+1);
+      for(let x=0;x<W;x++){const x0=Math.max(0,x-hw),x1=Math.min(W,x+hw+1),a=((y1-y0)*(x1-x0)),
+        s2=I[y1*(W+1)+x1]-I[y0*(W+1)+x1]-I[y1*(W+1)+x0]+I[y0*(W+1)+x0];
+        if(g[y*W+x]<s2/a*.7&&g[y*W+x]<135)ink[y*W+x]=1}}
+    // 가로로 끊긴 틈(펜이 떼진 곳) 메우기
+    const gap=Math.round(W*.008)+4;
+    for(let y=0;y<H;y++){let last=-1e9;for(let x=0;x<W;x++){if(ink[y*W+x]){if(x-last>1&&x-last<=gap)for(let k=last+1;k<x;k++)ink[y*W+k]=2;last=x}}}
+    const lab=new Uint8Array(n),stack=new Int32Array(n),out=[];
+    for(let i=0;i<n;i++){
+      if(!ink[i]||lab[i])continue;
+      let sp=0,cnt=0,x0=W,y0=H,x1=0,y1=0;const pts=[];stack[sp++]=i;lab[i]=1;
+      while(sp){const q=stack[--sp],qx=q%W,qy=(q-qx)/W;cnt++;pts.push(q);
+        if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
+        for(let dy=-1;dy<=1;dy++){const yy=qy+dy;if(yy<0||yy>=H)continue;for(let dx=-1;dx<=1;dx++){const xx=qx+dx;if(xx<0||xx>=W)continue;const k=yy*W+xx;if(ink[k]&&!lab[k]){lab[k]=1;stack[sp++]=k}}}}
+      const bw=x1-x0+1,bh=y1-y0+1;
+      if(bw<W*.2||bh>H*.07||bw/bh<14||cnt/bw>6.5)continue;
+      const e=Math.max(6,Math.round(bw*.08));let sa=0,na=0,sb=0,nb=0;
+      for(const q of pts){const qx=q%W,qy=(q-qx)/W;if(qx<x0+e){sa+=qy;na++}if(qx>x1-e){sb+=qy;nb++}}
+      out.push({x0,x1,ya:na?sa/na:y0,yb:nb?sb/nb:y1,w:bw});
+    }
+    return out;
+  }
+  window.PPOCR=Object.assign(window.PPOCR||{},{separators});
 })();
