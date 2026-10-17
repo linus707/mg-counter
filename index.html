@@ -354,8 +354,9 @@ const pkOf=s=>`${(s.maker||"").toLowerCase()}|${(s.product||"").toLowerCase()}`;
 function classify(s,over){
   const key=`${s.product}|${normSpec(s.spec)}`;
   if(over&&over[key])return over[key];
-  const gc=s.gtin?GC()[s.gtin]:null;if(gc&&gc.row&&rowExact(gc.row))return gc.row;
-  const pm=S.prodMap[pkOf(s)];if(pm&&rowExact(pm))return pm;
+  const gc=s.gtin?GC()[s.gtin]:null;if(gc&&gc.row==='__skip__')return '__skip__';if(gc&&gc.row&&rowExact(gc.row))return gc.row;
+  const pm=S.prodMap[pkOf(s)];if(pm==='__skip__')return '__skip__';if(pm&&rowExact(pm))return pm;
+  if(/avanos|mic\W*bolus|bolus gastrostomy|feeding tube/i.test(`${s.maker||''} ${s.product||''}`))return '__skip__';   // MIC 영양관은 집계에서 제외
   const ref=String(s.ref||"").toUpperCase().replace(/\s/g,""),name=`${s.maker||""} ${s.product||""}`.toLowerCase();
   let row=null;
   for(const [t,p,r] of CAT){if((t==="p"&&ref.startsWith(p.toUpperCase()))||(t==="e"&&ref===p.toUpperCase())){row=r;break}}
@@ -398,6 +399,7 @@ function analyze(list,over,extra){
   for(const s of list){
     if(s.hw){hwEntry(s,over,SR,warns);continue}
     const sp=normSpec(s.spec),sid=s.src||1,row=classify(s,over),key=`${s.product}|${sp}`,label=`${s.product} ${sp==="-"?"":sp}`.trim();
+    if(row==='__skip__')continue;   // 집계 제외
     if(!G.has(key))G.set(key,{key,pk:pkOf(s),gtin:s.gtin||"",product:s.product,spec:sp,n:0,nums:[],row});
     const g=G.get(key);g.n++;g.nums.push(...s.written);
     if(s.written.length>1)warns.push(`숫자가 여러 개예요: ${label} → ${s.written.join(", ")} (어느 것이 누적인지 확인)`);
@@ -487,7 +489,7 @@ function applyA(A,valOf){
 }
 const specTxt=a=>(a&&a.length)?a.map(x=>`${x.spec} ×${x.n}`).join(" · "):"-";
 function showResult(A){
-  const opts=S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option>${esc(r)}</option>`).join("");
+  const opts='<option value="__skip__">(집계에서 제외)</option>'+S.rows.filter(r=>r&&!HEADERS.includes(r)).map(r=>`<option>${esc(r)}</option>`).join("");
   const g=A.groups.map(x=>`<tr><td>${esc(x.product)}</td><td>${esc(x.spec)}</td><td class="n">${x.n}</td><td class="n">${x.nums.length?esc([...new Set(x.nums)].join(", ")):"-"}</td><td>${x.row?esc(x.row):`<select data-key="${esc(x.key)}"><option value="">선택…</option>${opts}</select><input data-spec="${esc(x.key)}" placeholder="규격(선택)" aria-label="규격" style="width:110px;margin-top:4px">`}</td></tr>`).join("");
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
   const SL=A.groups.map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
