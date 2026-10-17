@@ -415,7 +415,7 @@ function analyze(list,over,extra){
     const sk=`${row}|${sp}`;(r.specs[sk]||(r.specs[sk]={row,spec:sp,n:0})).n++;
   }
   const bySrc=new Map();
-  for(const s of list){if(!s.key)continue;const sid=s.src||1;if(!bySrc.has(sid))bySrc.set(sid,new Map());const m=bySrc.get(sid);m.set(s.key,(m.get(s.key)||0)+1)}
+  for(const s of list){if(!s.key||s.ocr||s.hw)continue;const sid=s.src||1;if(!bySrc.has(sid))bySrc.set(sid,new Map());const m=bySrc.get(sid);m.set(s.key,(m.get(s.key)||0)+1)}
   const ids=[...bySrc.keys()];
   for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){const A_=bySrc.get(ids[i]),B_=bySrc.get(ids[j]),shared=[...A_.keys()].filter(k=>B_.has(k)).length,mn=Math.min(A_.size,B_.size);
     if(mn>=2&&shared/mn>=.6)warns.push(`사진 ${ids[i]}과 사진 ${ids[j]}는 같은 시트로 보여요 (같은 바코드 ${shared}개가 겹쳐요). 같은 시트를 두 번 올렸다면 '처음부터 다시'를 누르고 한 장만 올려 주세요`)}
