@@ -108,13 +108,28 @@
     for(let i=0;i<nh;i++)for(let j=0;j<nw;j++){const yy=i+oy,xx=j+ox;if(yy>=0&&yy<28&&xx>=0&&xx<28)out[yy*28+xx]=d[(i*nw+j)*4]/255}
     return out;
   }
+  // 사용자가 고쳐 준 글자 예시 (kNN): [{l:'0'..'9' 또는 'x'(숫자 아님), v:Float32Array(784)}]
+  let USER=[];
+  function setUserSamples(arr){USER=(arr||[]).map(a=>{let n=0;for(let i=0;i<784;i++)n+=a.v[i]*a.v[i];return {l:a.l,v:a.v,n:Math.sqrt(n)||1}})}
+  function knn(v){
+    if(USER.length<3)return null;
+    let vn=0;for(let i=0;i<784;i++)vn+=v[i]*v[i];vn=Math.sqrt(vn)||1;
+    const sims=USER.map(u=>{let d=0;for(let i=0;i<784;i++)d+=u.v[i]*v[i];return {l:u.l,s:d/(u.n*vn)}}).sort((a,b)=>b.s-a.s).slice(0,3);
+    if(sims[0].s<.8)return null;                       // 비슷한 예시가 없으면 기본 모델에 맡겨요
+    const w={};for(const t of sims){if(t.s>=sims[0].s-.08)w[t.l]=(w[t.l]||0)+t.s}
+    let bl=null,bv=-1;for(const k in w)if(w[k]>bv){bv=w[k];bl=k}
+    return {l:bl,s:sims[0].s};
+  }
   function classify1(v){
     const m=DG,h=new Float32Array(m.h);
     for(let i=0;i<784;i++){const a=v[i];if(!a)continue;const o=i*m.h;for(let k=0;k<m.h;k++)h[k]+=a*m.w1[o+k]*m.s1}
     for(let k=0;k<m.h;k++){h[k]+=m.b1[k];if(h[k]<0)h[k]=0}
     const z=new Float32Array(10);for(let c=0;c<10;c++){let t=m.b2[c];for(let k=0;k<m.h;k++)t+=h[k]*m.w2[k*10+c]*m.s2;z[c]=t}
     let mx=-1e9;for(const t of z)if(t>mx)mx=t;let sum=0;const p=z.map(t=>{const e=Math.exp(t-mx);sum+=e;return e});
-    let bi=0;for(let c=1;c<10;c++)if(p[c]>p[bi])bi=c;return {d:bi,p:p[bi]/sum};
+    let bi=0;for(let c=1;c<10;c++)if(p[c]>p[bi])bi=c;
+    const base={d:bi,p:p[bi]/sum,src:"model"},u=knn(v);
+    if(u){if(u.l==="x")return {d:-1,p:u.s,src:"user"};return {d:+u.l,p:Math.max(u.s,.85),src:"user"}}   // 사용자 예시가 있으면 그걸 우선
+    return base;
   }
   async function handwriting(canvas,printed,exclude){
     await load();await loadDigits();
@@ -154,7 +169,7 @@
      cand=cand.filter(b=>!drop.has(b))}
     // 한 글자씩 읽기
     const ch=[];
-    for(const b of cand){const v=prep28(b,W);if(!v)continue;const r=classify1(v);if(r.p>=.8)ch.push({...b,d:r.d,p:r.p})}
+    for(const b of cand){const v=prep28(b,W);if(!v)continue;const r=classify1(v);if(r.d<0)continue;if(r.p>=.55)ch.push({...b,d:r.d,p:r.p,v,how:r.src})}
     // 가까운 글자끼리 묶어서 한 자리/두 자리 숫자로 (왼쪽→오른쪽)
     ch.sort((a,b)=>a.x0-b.x0);const groups=[];
     for(const b of ch){
@@ -163,9 +178,9 @@
       else groups.push({items:[b],x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1,h:b.h,cy:b.cy});
     }
     return groups.map(G=>{const t=G.items.map(i=>i.d).join(""),p=Math.min(...G.items.map(i=>i.p));
-      return {text:t,num:+t,conf:p,x:(G.x0+G.x1)/2,y:(G.y0+G.y1)/2,w:G.x1-G.x0,h:G.h}});
+      return {text:t,num:+t,conf:p,x:(G.x0+G.x1)/2,y:(G.y0+G.y1)/2,w:G.x1-G.x0,h:G.h,items:G.items.map(i=>({d:i.d,p:i.p,v:i.v,how:i.how}))}});
   }
-  window.PPOCR={load,recognize,handwriting};
+  window.PPOCR={load,recognize,handwriting,setUserSamples};
 
   // ---------- 날짜 구간 나누기: 시트에 손으로 그은 가로 구분선 찾기 ----------
   // 길고 가는 (두께 6px 이하) 가로 잉크 선만 찾아요. 반환: [{x0,x1,ya,yb}] (ya: 왼쪽 끝 y, yb: 오른쪽 끝 y) — canvas 좌표
