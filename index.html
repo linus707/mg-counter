@@ -90,6 +90,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <div class="hint">바코드가 없거나 손으로 센 제품(예: Genoss 7x200mm, Safety)은 여기서 <b>＋</b>를 누르세요. 막대 하나가 1개예요. 一 丅 下 止 正 = 5개!</div>
   <div class="row"><input id="tName" list="tNames" placeholder="제품명 (예: Genoss)" autocomplete="off"><input id="tSpec" placeholder="규격 (예: 7x200mm)" autocomplete="off"><button id="tAdd" class="sm pri">추가</button></div>
   <datalist id="tNames"></datalist>
+  <div id="tHint"></div>
   <div id="tList"></div>
   <div class="row"><button id="tCopy" class="sm">표 복사</button><button id="tClear" class="sm">전부 0으로</button></div>
 </section>
@@ -1034,6 +1035,7 @@ async function ocrStage(bmp,list,say){
   if(ppOk&&!stopAll&&$("oDay")&&$("oDay").checked){
     try{const k=await assignSections(bmp,lines,list.concat(extra));if(k)say(`구분선 ${k}개를 찾아 날짜(구간)별로 나눴어요`)}catch(e){console.warn("구간",e)}
   }
+  if(ppOk&&!stopAll){try{extra.tallyHints=parseTallyLines(lines,W,H)}catch(e){console.warn('정 막대',e)}}
   if(ppOk&&!stopAll){
     try{
       loadUserDigits();
@@ -1082,6 +1084,7 @@ async function recognize(file,inBatch){
     if(stopAll){setStatus("중지했어요");return false}
     // 3) 합치기
     if(ocrExtra.hwGroups)HWC[pid]=ocrExtra.hwGroups;renderHW();
+    if(ocrExtra.tallyHints){TLY[pid]=ocrExtra.tallyHints;renderTallyHints()}
     ocrExtra.forEach(e=>{e.src=pid});
     let all=list.concat(ocrExtra),aiItems={extra:[],hw:[],notes:[],date:""};
     if(ai){aiItems=aiToItems(ai,all,pid);all=all.concat(aiItems.extra,aiItems.hw)}
@@ -1193,6 +1196,44 @@ $("tAdd").onclick=()=>{
   if(ex)toast("이미 있어요. 아래에서 ＋를 누르세요");else S.tally.push({name,spec,n:0});
   $("tName").value="";$("tSpec").value="";save();renderTally();
 };
+// ---------- 사진 속 정(正) 막대 읽기: 글자 인식이 읽은 줄에서 '이름 + 막대 표시'를 찾아 후보로 보여줘요 ----------
+const TALLY_NAMES=[[/hum\w{0,3}|휴먼|hurnan/ig,"Human"],[/s[aio]?fet[yvaq]?|afet[yvaq]/ig,"Safety"],[/fog\w{0,5}/ig,"Fogarty"],[/tul[il]p/ig,"Tulip"],[/\bEQ\b/g,"EQ"]];
+const TALLY_MARK=c=>/[正]/.test(c)?5:/[止]/.test(c)?4:/[下F]/.test(c)?3:/[丅T]/.test(c)?2:/[—―一\-_–]/.test(c)?1:0;   // 영문 대문자 F=下, T=丅 만 인정 (소문자는 이름 글자와 헷갈려서 제외)
+function parseTallyLines(lines,W,H){
+  const out=[],M=Math.max(W,H);
+  for(const l of lines){
+    const t=String(l.text||"");if(!/[正止下丅一—\-]|[A-Za-z]{3,}/.test(t))continue;
+    const hits=[];
+    for(const [re,name] of TALLY_NAMES){re.lastIndex=0;let m;while((m=re.exec(t)))hits.push({name,i:m.index,e:m.index+m[0].length})}
+    if(!hits.length)continue;hits.sort((a,b)=>a.i-b.i);
+    // 겹치는 후보는 앞의 것만
+    const uniq=[];for(const x of hits)if(!uniq.length||x.i>=uniq[uniq.length-1].e)uniq.push(x);
+    uniq.forEach((x,k)=>{
+      const seg=t.slice(x.e,k+1<uniq.length?uniq[k+1].i:t.length),pre=k===0?t.slice(0,x.i):"";
+      let n=0,marks="";for(const c of seg+(k===0?"":"")){const v=TALLY_MARK(c);if(v){n+=v;marks+=c}}
+      // 이름 바로 앞에 붙은 막대(예: '下 Safety')는 앞 이름에 이미 더해졌으므로 여기서는 쓰지 않아요
+      out.push({name:x.name,n,marks,raw:t,x:l.x,y:l.y});
+    });
+  }
+  // 같은 줄을 여러 번 읽은 것(타일 겹침) 정리: 이름이 같고 위치가 가까우면 큰 값 하나만
+  const res=[];
+  for(const o of out){const d=res.find(r=>r.name===o.name&&Math.hypot(r.x-o.x,r.y-o.y)<.04*M);if(d){if(o.n>d.n){d.n=o.n;d.marks=o.marks;d.raw=o.raw}}else res.push({...o})}
+  return res;
+}
+const TLY=window.TLYX={};   // 사진별 후보
+function renderTallyHints(){
+  const box=$("tHint");if(!box)return;
+  const all=Object.keys(TLY).flatMap(k=>TLY[k].map((t,i)=>({...t,k,i}))).filter(t=>t.n>0);
+  if(!all.length){box.innerHTML="";return}
+  box.innerHTML=`<div class="resh">사진에서 읽은 정(正) 막대 후보</div><div class="hint">손글씨 막대를 글자로 읽은 거라 틀릴 수 있어요. 숫자를 확인하거나 고친 뒤 '카운터에 더하기'를 누르세요.</div>`+all.map(t=>`<div class="trow"><div class="tname"><b>${esc(t.name)}</b> <span class="tspec">사진 ${esc(t.k)} · 읽은 글자 ${esc(t.raw)}</span><div class="tmark">${esc(tallyStr(t.n))}</div></div><div class="tctl"><input type="number" min="0" max="99" value="${t.n}" data-hk="${esc(t.k)}" data-hi="${t.i}" style="width:60px"><button class="sm pri" data-hadd="${esc(t.k)}:${t.i}">카운터에 더하기</button></div></div>`).join("");
+  box.querySelectorAll("button[data-hadd]").forEach(b=>b.onclick=()=>{
+    const [k,i]=b.dataset.hadd.split(":"),inp=box.querySelector(`input[data-hk="${k}"][data-hi="${i}"]`),t=TLY[k][+i],n=Math.max(0,parseInt(inp.value)||0);
+    if(!n){toast("0개는 더하지 않아요");return}
+    let ex=S.tally.find(x=>x.name.toLowerCase()===t.name.toLowerCase()&&!x.spec);if(!ex){ex={name:t.name,spec:"",n:0};S.tally.push(ex)}
+    ex.n+=n;t.n=0;save();renderTally();renderTallyHints();toast(`${t.name} ${n}개를 카운터에 더했어요`);
+  });
+}
+
 $("tName").onkeydown=$("tSpec").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("tAdd").click()}};
 $("tClear").onclick=()=>{if(confirm("모든 카운터를 0으로 되돌릴까요? (제품 목록은 그대로예요)")){S.tally.forEach(t=>t.n=0);save();renderTally()}};
 $("tCopy").onclick=()=>{

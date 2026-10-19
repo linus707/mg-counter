@@ -214,4 +214,66 @@
     return out;
   }
   window.PPOCR=Object.assign(window.PPOCR||{},{separators});
+
+  // ---------- 바를 정(正) 막대 세기 ----------
+  // 이름 줄(예: Human, Safety) 오른쪽의 손글씨 덩어리를 찾아, 글자마다 선의 길이로 막대 수(一=1, 丅=2, 下=3, 止=4, 正=5)를 어림해요.
+  function thin(m,w,h){   // Zhang-Suen 세선화 (작은 조각용)
+    const g=new Uint8Array(m);let ch=true,guard=0;
+    const at=(x,y)=>(x<0||y<0||x>=w||y>=h)?0:g[y*w+x];
+    while(ch&&guard++<60){ch=false;
+      for(let pass=0;pass<2;pass++){const del=[];
+        for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+          if(!g[y*w+x])continue;
+          const p2=at(x,y-1),p3=at(x+1,y-1),p4=at(x+1,y),p5=at(x+1,y+1),p6=at(x,y+1),p7=at(x-1,y+1),p8=at(x-1,y),p9=at(x-1,y-1);
+          const B=p2+p3+p4+p5+p6+p7+p8+p9;if(B<2||B>6)continue;
+          const seq=[p2,p3,p4,p5,p6,p7,p8,p9,p2];let A=0;for(let i=0;i<8;i++)if(!seq[i]&&seq[i+1])A++;if(A!==1)continue;
+          if(pass===0){if(p2*p4*p6!==0||p4*p6*p8!==0)continue}else{if(p2*p4*p8!==0||p2*p6*p8!==0)continue}
+          del.push(y*w+x)}
+        if(del.length){ch=true;for(const k of del)g[k]=0}}}
+    return g;
+  }
+  async function tally(canvas,notes,printed){
+    await load();
+    const W=canvas.width,H=canvas.height,M=Math.max(W,H),n=W*H;
+    const d=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H).data,g=new Uint8Array(n);
+    for(let i=0,p=0;i<n;i++,p+=4)g[i]=(d[p]*.3+d[p+1]*.59+d[p+2]*.11)|0;
+    const I=new Float64Array((W+1)*(H+1));
+    for(let y=0;y<H;y++){let row=0;for(let x=0;x<W;x++){row+=g[y*W+x];I[(y+1)*(W+1)+x+1]=I[y*(W+1)+x+1]+row}}
+    const hw=Math.max(12,Math.round(M*.012));
+    const inkAt=(x,y)=>{const y0=Math.max(0,y-hw),y1=Math.min(H,y+hw+1),x0=Math.max(0,x-hw),x1=Math.min(W,x+hw+1),a=(y1-y0)*(x1-x0),s2=I[y1*(W+1)+x1]-I[y0*(W+1)+x1]-I[y1*(W+1)+x0]+I[y0*(W+1)+x0];return g[y*W+x]<s2/a*.62&&g[y*W+x]<125};
+    const pr=(printed||[]).filter(l=>l.conf>=.6&&l.text.replace(/\s/g,"").length>=3);
+    const out=[];
+    for(const nt of notes){
+      const bh=Math.max(nt.h,M*.015),bx0=Math.round(nt.x+nt.w/2+bh*.2),bx1=Math.min(W,Math.round(bx0+Math.max(M*.16,bh*7))),by0=Math.max(0,Math.round(nt.y-bh*1.3)),by1=Math.min(H,Math.round(nt.y+bh*1.3));
+      if(bx1-bx0<10)continue;
+      const w=bx1-bx0,h=by1-by0,ink=new Uint8Array(w*h);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(inkAt(bx0+x,by0+y))ink[y*w+x]=1;
+      const lab=new Uint8Array(w*h),blobs=[];
+      for(let i=0;i<w*h;i++){
+        if(!ink[i]||lab[i])continue;const st=[i];lab[i]=1;let cnt=0,x0=w,y0=h,x1=0,y1=0;const pts=[];
+        while(st.length){const q=st.pop(),qx=q%w,qy=(q-qx)/w;cnt++;pts.push(q);if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
+          for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=qx+dx,yy=qy+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const k=yy*w+xx;if(ink[k]&&!lab[k]){lab[k]=1;st.push(k)}}}
+        const bw=x1-x0+1,bhh=y1-y0+1;
+        if(cnt<bh*.35||Math.max(bw,bhh)<bh*.45)continue;                                   // 점·잡티
+        const cx=bx0+(x0+x1)/2,cy=by0+(y0+y1)/2;
+        if(pr.some(l=>cx>l.x-l.w/2&&cx<l.x+l.w/2&&cy>l.y-l.h/2&&cy<l.y+l.h/2))continue;      // 인쇄 글씨
+        blobs.push({x0,y0,x1:x1+1,y1:y1+1,pts,bw,bh:bhh});
+      }
+      blobs.sort((a,b)=>a.x0-b.x0);
+      const groups=[];
+      for(const b of blobs){const G=groups[groups.length-1];
+        if(G&&b.x0-G.x1<bh*.7){G.items.push(b);G.x1=Math.max(G.x1,b.x1);G.y0=Math.min(G.y0,b.y0);G.y1=Math.max(G.y1,b.y1)}
+        else groups.push({items:[b],x0:b.x0,x1:b.x1,y0:b.y0,y1:b.y1})}
+      const gl=[];
+      for(const G of groups){
+        const gw=G.x1-G.x0,gh=G.y1-G.y0;if(gw<2||gh<2)continue;
+        const m=new Uint8Array(gw*gh);for(const b of G.items)for(const q of b.pts){const qx=q%w-G.x0,qy=((q/w)|0)-G.y0;if(qx>=0&&qy>=0&&qx<gw&&qy<gh)m[qy*gw+qx]=1}
+        const sk=thin(m,gw,gh);let L=0;for(let i=0;i<sk.length;i++)L+=sk[i];
+        gl.push({w:gw,h:gh,len:L,ratio:L/Math.max(bh,gh,gw*.5),x:bx0+(G.x0+G.x1)/2,y:by0+(G.y0+G.y1)/2});
+      }
+      out.push({name:nt.text,x:nt.x,y:nt.y,glyphs:gl,bh});
+    }
+    return out;
+  }
+  window.PPOCR=Object.assign(window.PPOCR||{},{tally});
 })();
