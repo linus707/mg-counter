@@ -363,7 +363,7 @@ async function runBatch(files){
 let ctl=null,LAST=null;
 const setStatus=t=>{$("aiStatus").textContent=t};
 const SERIES=r=>r==="mustang(long)150-200"?"mustang":r;
-const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
+const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","YR","yoroi"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
 ["k","absolute pro","absolute pro"],["k","in.pact","inpact"],["k","conquest","conquest"],["k","atlas gold","atlas"],["k","athletis","athletis"],["k","mustang","mustang"],["k","jade","jade"],["k","saber","saber"],["k","cleaner","cleaner"],["k","sf 2-lumen","python picc"],["k","2-lumen","python picc"],["k","hemodialysis","perm"],["k","long perm","perm"],["k","long-term","perm"]];
 const pkOf=s=>`${(s.maker||"").toLowerCase()}|${(s.product||"").toLowerCase()}`;
 function classify(s,over){
@@ -908,7 +908,7 @@ function ocrNameStickers(lines,W,H){
   for(const l of lines){
     const t=" "+l.text.toLowerCase().replace(/[™®]/g,"").replace(/\s+/g," ")+" ";
     for(const [k,row] of keys){
-      if(t.includes(k)&&(k.length>=6||/[^a-z0-9]/.test(t[t.indexOf(k)-1]||" "))){
+      if(t.includes(k)&&(k.length>=6||/[^a-z]/.test(t[t.indexOf(k)-1]||" "))){
         if(!out.some(o=>o.nameRow===row&&Math.hypot(o.x-l.x,o.y-l.y)<R))out.push({maker:"",product:row,spec:"",ref:"",lot:"",exp:"",length_mm:null,gtin:"",key:`name|${row}|${Math.round(l.x)}|${Math.round(l.y)}`,written:[],circled:null,row,conf:"low",x:l.x,y:l.y,ocr:true,byName:true,nameRow:row});
         break;   // 한 줄에서는 가장 긴(가장 구체적인) 이름 하나만
       }
@@ -925,7 +925,7 @@ function nearbySpec(lines,o,M){
     if(dy<-.015*M||dy>.09*M||dx>.2*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
   if(!best)return "";const L=/cm/i.test(best[3])?+best[2]*10:+best[2];return `${+best[1]}mm x ${L}mm`;
 }
-const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
+const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
 // Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
 function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
@@ -942,6 +942,7 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="sbi"){maker="Medtronic";product="IN.PACT Admiral";spec=`REF ${ref}`}
   else if(kind==="saber"){ref=ref.replace(/N?$/,"N");maker="Cordis";product="SABER .035";spec=`REF ${ref}`}
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
+  else if(kind==="yoroi"){const m=ref.match(/YR(\d{2})-?(\d{2})(\d{2})/);maker="KANEKA";product="YOROI HC";spec=m?`${(+m[2]/10).toFixed(1)}mm x ${+m[3]}mm`:`REF ${ref}`;if(m)ref=`YR${m[1]}-${m[2]}${m[3]}HC`}   // 예) YR75-7060HC = 7.0mm x 60mm
   else if(kind==="cleaner"){maker="Argon";product="CLEANER 15";spec=`REF ${ref}`}
   else if(kind==="powerpicc"){maker="BD";product="PowerPICC Catheter";spec=`REF ${ref}`}
   else if(kind==="celsite"){maker="B.Braun";product="Celsite Safety SST605F";spec=`REF ${ref}`}
