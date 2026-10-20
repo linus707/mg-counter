@@ -799,7 +799,7 @@ async function assignSections(bmp,lines,stickers){
   const labels={},heads=[];
   for(const l of lines.slice().sort((a,b)=>a.y-b.y)){
     const t=String(l.text||"").replace(/\s+/g,"");
-    const m=/^\D{0,3}(\d{1,2})[\/.](\d{1,2})\D{0,8}$/.exec(t);
+    const m=/^\D{0,3}(\d{1,2})[\/.](\d{1,2})(?:\D{0,8}?\d?[RrＲ])?\D{0,8}$/.exec(t);   // 10/20(화)1R 처럼 뒤에 방 번호가 붙어도 날짜로 봐요
     if(!m||/mm/i.test(t)||+m[1]<1||+m[1]>12||+m[2]<1||+m[2]>31)continue;
     const lab=`${+m[1]}/${+m[2]}`;heads.push({y:l.y,x:l.x,lab});
     const k=above(l.x,l.y);if(!labels[k])labels[k]=lab;
