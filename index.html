@@ -1090,7 +1090,9 @@ async function ocrStage(bmp,list,say){
   let extra;
   if(!list.length&&TEXTMODE){
     const A=stickersFromTextGtin(lines);
-    const B=leftoverOcr(A,ocrStickers(lines),W,H);
+    let B=leftoverOcr(A,ocrStickers(lines),W,H);
+    // 같은 자리에서 REF 를 잘못 읽은 것(예: CQF75124 → CQF7512)은 규격이 풀린 쪽 하나만 남겨요
+    B=B.filter(o=>!/^REF /.test(o.spec||"")||!A.concat(B).some(p=>p!==o&&!/^REF /.test(p.spec||"")&&classify(p,null)===classify(o,null)&&Math.hypot(p.x-o.x,p.y-o.y)<.05*Math.max(W,H)));
     const D=leftoverOcr(A.concat(B),ocrSpecStickers(lines,W,H),W,H);
     const C=leftoverName(A.concat(B,D),ocrNameStickers(lines,W,H),W,H);
     extra=A.concat(B,D,C);
