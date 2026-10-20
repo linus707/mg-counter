@@ -206,10 +206,14 @@
         if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
         for(let dy=-1;dy<=1;dy++){const yy=qy+dy;if(yy<0||yy>=H)continue;for(let dx=-1;dx<=1;dx++){const xx=qx+dx;if(xx<0||xx>=W)continue;const k=yy*W+xx;if(ink[k]&&!lab[k]){lab[k]=1;stack[sp++]=k}}}}
       const bw=x1-x0+1,bh=y1-y0+1;
-      if(bw<W*.2||bh>H*.07||bw/bh<14||cnt/bw>6.5)continue;
+      // 곧은 선뿐 아니라 계단처럼 꺾인 선(스티커 둘레를 따라 그은 경계)도 받아요: 선이 가늘고(획 두께 7px 이하) 가로로 충분히 길면 돼요
+      const straight=bh<=H*.07&&bw/bh>=14&&cnt/bw<=6.5,bent=bw>=W*.25&&bh<=H*.5&&cnt/(bw+bh)<=7;
+      if(bw<W*.2||!(straight||bent))continue;
       const e=Math.max(6,Math.round(bw*.08));let sa=0,na=0,sb=0,nb=0;
       for(const q of pts){const qx=q%W,qy=(q-qx)/W;if(qx<x0+e){sa+=qy;na++}if(qx>x1-e){sb+=qy;nb++}}
-      out.push({x0,x1,ya:na?sa/na:y0,yb:nb?sb/nb:y1,w:bw});
+      const col=new Map();for(const q of pts){const qx=q%W,qy=(q-qx)/W,k=Math.round(qx/6);(col.get(k)||col.set(k,[]).get(k)).push(qy)}
+      const prof=[...col.entries()].sort((a,b)=>a[0]-b[0]).map(([k,ys])=>{ys.sort((a,b)=>a-b);return [k*6,ys[ys.length>>1]]});
+      out.push({x0,x1,ya:na?sa/na:y0,yb:nb?sb/nb:y1,w:bw,prof,bent:!straight});
     }
     return out;
   }
