@@ -890,7 +890,7 @@ function enrichSpecs(list,lines,W,H){
 }
 // 엑셀 A열의 제품명으로 사진 속 글자를 찾는 규칙 (REF 규칙이 없는 제품도 이름으로 찾아요)
 const NAME_ALIAS={"inpact":["in.pact","inpact"],"emboshere":["embosphere","emboshere"],"atlas":["atlas gold"],"ivc filter bd denali":["denali"],"celsite port":["celsite"],"python picc":["python"],"genoss picc":["genoss picc"]};
-const NAME_STOP=new Set(["filter","snare","port","picc","drain","wire","plus","long","stent","smart","human","deltec","argyle","power","total","fortrex"]);
+const NAME_STOP=new Set(["filter","snare","port","picc","drain","wire","plus","long","stent","smart","human","deltec","power","total","fortrex"]);
 function nameKeys(){
   const map=new Map(),pend=[];   // keyword -> row. 전체 이름이 일치하는 행이 먼저, 단어 조각은 남은 것만
   for(const r of S.rows){
