@@ -110,6 +110,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <input type="file" id="fPhoto" accept="image/*" multiple hidden>
   <div class="row" id="aiOpts">
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>꼼꼼히 읽기 (느리지만 작은 바코드도 찾아요)</label>
+    <label class="scanner" style="margin:0"><input type="checkbox" id="oBar">바코드도 함께 읽기 (끄면 글자만으로 인식 · 빠름 · 기본)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oOcr" checked>인쇄된 글자도 읽기 (느림 · 처음 한 번 약 7MB 내려받아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oPP" checked>정밀 글자 인식 사용 (오픈소스 PaddleOCR · 처음 한 번 약 26MB · 규격을 더 정확히 읽어요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oDay" checked>시트의 가로 구분선으로 날짜(구간)별로 나눠서 보기</label>
@@ -362,7 +363,7 @@ async function runBatch(files){
 let ctl=null,LAST=null;
 const setStatus=t=>{$("aiStatus").textContent=t};
 const SERIES=r=>r==="mustang(long)150-200"?"mustang":r;
-const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","GPNCN","genoss"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
+const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
 ["k","absolute pro","absolute pro"],["k","in.pact","inpact"],["k","conquest","conquest"],["k","atlas gold","atlas"],["k","athletis","athletis"],["k","mustang","mustang"],["k","jade","jade"],["k","saber","saber"],["k","cleaner","cleaner"],["k","sf 2-lumen","python picc"],["k","2-lumen","python picc"],["k","hemodialysis","perm"],["k","long perm","perm"],["k","long-term","perm"]];
 const pkOf=s=>`${(s.maker||"").toLowerCase()}|${(s.product||"").toLowerCase()}`;
 function classify(s,over){
@@ -417,7 +418,7 @@ function analyze(list,over,extra){
     if(!G.has(key))G.set(key,{key,pk:pkOf(s),gtin:s.gtin||"",product:s.product,spec:sp,n:0,nums:[],row});
     const g=G.get(key);g.n++;g.nums.push(...s.written);
     if(s.written.length>1)warns.push(`숫자가 여러 개예요: ${label} → ${s.written.join(", ")} (어느 것이 누적인지 확인)`);
-    if(s.conf==="low")warns.push(s.ocr?(s.byName?`제품 이름만 읽음: ${s.product} — 사진과 비교해 확인하세요`:`글자로만 읽음(바코드 없음): ${label} — 사진과 비교해 확인하세요`):`읽기 불확실: ${label}${s.written.length?" → "+s.written.join(", "):""}`);
+    if(s.conf==="low"&&!TEXTMODE)warns.push(s.ocr?(s.byName?`제품 이름만 읽음: ${s.product} — 사진과 비교해 확인하세요`:`글자로만 읽음(바코드 없음): ${label} — 사진과 비교해 확인하세요`):`읽기 불확실: ${label}${s.written.length?" → "+s.written.join(", "):""}`);
     if(s.exp){const left=Math.round((new Date(s.exp+"T00:00:00")-day)/864e5);if(left<=30)warns.push(`유효기간 ${left<0?"지남":left+"일 남음"}: ${label} (${s.exp})`)}
     if(!row)continue;
     const ser=SERIES(row);if(!SR.has(ser))SR.set(ser,{ser,src:new Map(),rows:{},specs:{}});
@@ -695,7 +696,7 @@ async function decodePhoto(bmp,o){
 }
 // ---------- 인쇄된 글자 읽기 (OCR, AI 없이 이 기기에서 처리) ----------
 // 손글씨는 읽지 못해요. 스티커에 인쇄된 REF 번호를 찾아서 제품·규격을 알아내요.
-let OCR_W=null;
+let OCR_W=null,TEXTMODE=true;
 function loadScript(src){return new Promise((res,rej)=>{const e=document.createElement("script");e.src=src;e.onload=res;e.onerror=()=>rej(new Error(src+" 를 불러오지 못했어요"));document.head.appendChild(e)})}
 async function ocrWorker(say){
   if(OCR_W)return OCR_W;
@@ -833,6 +834,44 @@ function attachNumbers(stickers,nums,W,H){
   for(const [d,i,j] of pairs){if(ui.has(i)||uj.has(j))continue;ui.add(i);uj.add(j);stickers[j].written=[nums[i].num];stickers[j].hwRead=true;k++}
   return k;
 }
+// ---------- 글자만으로 인식 (바코드 없이) ----------
+// 1) 스티커에 인쇄된 제품코드(GTIN) 숫자  2) REF 번호  3) 제품 이름 + 규격 글자  4) 엑셀 제품 이름 — 순서로 찾고, 같은 스티커는 한 번만 세요.
+function stickersFromTextGtin(lines){
+  const out=[];
+  for(const l of lines){
+    const t=String(l.text||"").replace(/[\s\-_.]/g,"");
+    const cands=new Set();let m;
+    const re1=/\(?01\)?(\d{14})/g;while((m=re1.exec(t)))cands.add(m[1]);
+    const re2=/GTIN(\d{14})/gi;while((m=re2.exec(t)))cands.add(m[1]);
+    const re3=/(?<!\d)(0\d{13})(?!\d)/g;while((m=re3.exec(t)))cands.add(m[1]);
+    for(const g of cands){
+      if(!gs1ok(g)||!GC()[g])continue;                                   // 체크숫자가 맞고 제품표에 있는 것만 인정해요
+      const st=stickerFromCode("(01)"+g);if(!st)continue;
+      st.x=l.x;st.y=l.y;st.fromText=true;st.conf="high";
+      if(!out.some(o=>o.gtin===g&&Math.hypot(o.x-st.x,o.y-st.y)<90))out.push(st);
+    }
+  }
+  return out;
+}
+const SPEC_NAMES=[[/mustang/i,"MUSTANG"],[/athletis/i,"Athletis"]];
+function ocrSpecStickers(lines,W,H){
+  const M=Math.max(W,H),R=.09*M,out=[];
+  for(const l of lines){
+    const nm=SPEC_NAMES.find(([re])=>re.test(l.text));if(!nm)continue;
+    const near=lines.filter(o=>Math.hypot(o.x-l.x,o.y-l.y)<R).map(o=>o.text).join(" ").replace(/[_*~]/g,"x");
+    const sp=/(\d{1,2}(?:\.\d)?)\s*mm\s*x\s*(\d{2,3})\s*mm/i.exec(near);if(!sp)continue;
+    const len=+sp[2],product=nm[1],d=(+sp[1]).toFixed(1);
+    if(+d<2||+d>12.5||len<20||len>200||len%10)continue;   // 말이 안 되는 규격(잘못 읽은 숫자)은 버려요
+    const st={maker:"Boston Scientific",product,spec:`${d}mm x ${len}mm 75cm`,ref:"",lot:"",exp:"",length_mm:len,gtin:"",key:`spec|${product}|${d}|${len}|${Math.round(l.x)}|${Math.round(l.y)}`,written:[],circled:null,row:"",conf:"low",x:l.x,y:l.y,ocr:true};
+    if(!out.some(o=>o.spec===st.spec&&o.product===st.product&&Math.hypot(o.x-st.x,o.y-st.y)<.08*M))out.push(st);
+  }
+  for(const l of lines){   // genoss 5F 2-lumen 라벨 (바코드 숫자를 못 읽어도 글자 '2-lumen' 으로 찾아요)
+    if(!/2\W?-?lum[eo]n|2-?lumeh/i.test(l.text))continue;
+    if(out.some(o=>o.lumen&&Math.hypot(o.x-l.x,o.y-l.y)<.06*M))continue;
+    out.push({maker:"genoss",product:"genoss 5F 2-lumen",spec:"5F 2-lumen",ref:"",lot:"",exp:"",length_mm:null,gtin:"",key:`lumen|${Math.round(l.x)}|${Math.round(l.y)}`,written:[],circled:null,row:"",conf:"low",x:l.x,y:l.y,ocr:true,lumen:true});
+  }
+  return out;
+}
 // 바코드는 읽었지만 제품표에 없는 스티커: 가까운 글자에서 REF·이름·규격을 찾아 채워요 (예: MUSTANG 6.0mm x 100mm)
 function enrichSpecs(list,lines,W,H){
   const R=.16*Math.max(W,H);let n=0;
@@ -877,7 +916,7 @@ function ocrNameStickers(lines,W,H){
   }
   return out;
 }
-const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/48006030N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"]];
+const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/48006030N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
 // Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
 function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
@@ -895,6 +934,9 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="saber"){maker="Cordis";product="SABER .035";spec=`REF ${ref}`}
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="cleaner"){maker="Argon";product="CLEANER 15";spec=`REF ${ref}`}
+  else if(kind==="powerpicc"){maker="BD";product="PowerPICC Catheter";spec=`REF ${ref}`}
+  else if(kind==="celsite"){maker="B.Braun";product="Celsite Safety SST605F";spec=`REF ${ref}`}
+  else if(kind==="glidepath"){maker="BD";product="GlidePath Long-Term Hemodialysis Catheter";spec=`REF ${ref}`}
   return {maker,product,spec,ref,lot:"",exp:"",length_mm:len,gtin:"",key:`ocr|${ref}|${Math.round(x)}|${Math.round(y)}`,written:[],circled:null,row:"",conf:"low",x,y,ocr:true};
 }
 function ocrStickers(lines){
@@ -1045,9 +1087,18 @@ async function ocrStage(bmp,list,say){
   }
   if(stopAll)return [];
   enrichSpecs(list,lines,W,H);
-  const refExtra=leftoverOcr(list,ocrStickers(lines),W,H);
-  const nameExtra=leftoverName(list.concat(refExtra),ocrNameStickers(lines,W,H),W,H);
-  const extra=refExtra.concat(nameExtra);
+  let extra;
+  if(!list.length&&TEXTMODE){
+    const A=stickersFromTextGtin(lines);
+    const B=leftoverOcr(A,ocrStickers(lines),W,H);
+    const D=leftoverOcr(A.concat(B),ocrSpecStickers(lines,W,H),W,H);
+    const C=leftoverName(A.concat(B,D),ocrNameStickers(lines,W,H),W,H);
+    extra=A.concat(B,D,C);
+  }else{
+    const refExtra=leftoverOcr(list,ocrStickers(lines),W,H);
+    const nameExtra=leftoverName(list.concat(refExtra),ocrNameStickers(lines,W,H),W,H);
+    extra=refExtra.concat(nameExtra);
+  }
   if(ppOk&&!stopAll&&$("oDay")&&$("oDay").checked){
     try{const k=await assignSections(bmp,lines,list.concat(extra));if(k)say(`구분선 ${k}개를 찾아 날짜(구간)별로 나눴어요`)}catch(e){console.warn("구간",e)}
   }
@@ -1067,29 +1118,34 @@ function showInterim(list,pid){
   showResult(A);
   const ap=$("bApply");if(ap){ap.disabled=true;ap.textContent="분석 중... 끝나면 반영할 수 있어요"}
 }
+const NAME_COVER={genoss:["python picc","genoss Picc"],mustang:["mustang(long)150-200"]};   // 같은 라벨의 이름이 다른 행 이름으로 읽히는 경우
 function leftoverName(covered,nameList,W,H){
   const D=.12*Math.max(W,H),free=nameList.slice();
   for(const c of covered){const rc=classify(c,null);let bi=-1,bd=1e9;
-    free.forEach((o,i)=>{if(o.row===rc){const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<D&&d<bd){bd=d;bi=i}}});
+    free.forEach((o,i)=>{const same=o.row===rc,alias=!same&&(NAME_COVER[o.row]||[]).includes(rc);
+      if(!same&&!alias)return;
+      if(alias&&Math.abs(o.y-c.y)>.02*Math.max(W,H))return;   // 위아래로 붙은 다른 띠 라벨을 같은 라벨로 착각하지 않게
+      const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<D&&d<bd){bd=d;bi=i}});
     if(bi>=0)free.splice(bi,1)}
   return free;
 }
 async function recognize(file,inBatch){
   if(!zxInit()&&!document.getElementById("zxSrc")){setStatus("바코드 엔진을 불러오지 못했어요. 페이지를 새로고침해 보세요");return false}
-  const useOcr=$("oOcr").checked,useAI=$("oAI").checked&&!!getKey();
+  const useOcr=$("oOcr").checked||!$("oBar").checked,useAI=$("oAI").checked&&!!getKey();   // 바코드를 끄면 글자 읽기는 항상 켜요
   const P={bar:"…",ocr:useOcr?"대기":"끔",ai:useAI?"대기":"끔"},pid=curPhoto,notesOut=[];
   $("aiStopRow").hidden=false;$("res").hidden=true;pipeShow(P);
   const say=t=>{if(!inBatch)setStatus(t)};
-  say("사진에서 바코드를 찾는 중이에요...");
+  say($("oBar").checked?"사진에서 바코드를 찾는 중이에요...":"사진의 글자를 읽을 준비를 하는 중이에요...");
   let bmp=null;ctl=new AbortController();
   try{
     bmp=await loadBmp(file);
     // 1) 바코드
-    const codes=await decodePhoto(bmp,{thorough:$("oTile").checked,isStopped:()=>stopAll,onProgress:(i,n)=>{P.bar=`${i}/${n}`;pipeShow(P)}});
+    const useBar=$("oBar")&&$("oBar").checked;TEXTMODE=!useBar;
+    const codes=useBar?await decodePhoto(bmp,{thorough:$("oTile").checked,isStopped:()=>stopAll,onProgress:(i,n)=>{P.bar=`${i}/${n}`;pipeShow(P)}}):[];
     if(stopAll){setStatus("중지했어요");return false}
     const list=[];let skipped=0;
     for(const c of codes){const st=stickerFromCode(c.text);if(st){st.src=pid;st.x=c.cx;st.y=c.cy;st.size=c.size;list.push(st)}else skipped++}
-    P.bar=`✓ ${list.length}개`;pipeShow(P);
+    P.bar=useBar?`✓ ${list.length}개`:"끔";pipeShow(P);
     if(list.length&&!inBatch&&(useOcr||useAI))showInterim(list,pid);
     // 2) 글자 읽기와 AI 보강을 동시에
     let ocrExtra=[],ai=null;
