@@ -848,7 +848,7 @@ function stickersFromTextGtin(lines){
       if(!gs1ok(g)||!GC()[g])continue;                                   // 체크숫자가 맞고 제품표에 있는 것만 인정해요
       const st=stickerFromCode("(01)"+g);if(!st)continue;
       st.x=l.x;st.y=l.y;st.fromText=true;st.conf="high";
-      if(!out.some(o=>o.gtin===g&&Math.hypot(o.x-st.x,o.y-st.y)<90))out.push(st);
+      if(!out.some(o=>o.gtin===g&&Math.hypot(o.x-st.x,o.y-st.y)<35))out.push(st);
     }
   }
   return out;
@@ -914,9 +914,18 @@ function ocrNameStickers(lines,W,H){
       }
     }
   }
+  for(const o of out){const sp=nearbySpec(lines,o,Math.max(W,H));if(sp)o.spec=sp}
   return out;
 }
-const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/48006030N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
+// 이름만 읽힌 스티커 주변 글자에서 '7mm x 100mm', '6 mm X 6 cm' 같은 규격을 찾아요 (이름 줄 또는 바로 아래 줄들)
+function nearbySpec(lines,o,M){
+  const rx=/(\d{1,2}(?:\.\d)?)\s*(?:mm|MM|F|Fr)?\s*[x×X*]\s*(\d{1,3}(?:\.\d)?)\s*(mm|MM|cm|CM)\b/;
+  let best=null,bd=1e9;
+  for(const l of lines){const m=rx.exec(l.text);if(!m)continue;const dy=l.y-o.y,dx=Math.abs(l.x-o.x);
+    if(dy<-.015*M||dy>.09*M||dx>.2*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
+  if(!best)return "";const L=/cm/i.test(best[3])?+best[2]*10:+best[2];return `${+best[1]}mm x ${L}mm`;
+}
+const OCR_RX=[[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
 // Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
 function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
@@ -931,7 +940,7 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="abbott"){ref=ref.replace(/^1011917-?/,"1011917-");maker="Abbott";product="Absolute Pro OTW";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="genoss"){const m=ref.match(/GPNCN-?(\d{2})-?(\d{3})-?(\d{3})/);maker="Genoss";product="PTA Balloon";spec=m?`${+m[1]}mm x ${+m[2]}mm ${+m[3]}cm`:`REF ${ref}`;if(m)ref=`GPNCN-${m[1]}-${m[2]}-${m[3]}`}
   else if(kind==="sbi"){maker="Medtronic";product="IN.PACT Admiral";spec=`REF ${ref}`}
-  else if(kind==="saber"){maker="Cordis";product="SABER .035";spec=`REF ${ref}`}
+  else if(kind==="saber"){ref=ref.replace(/N?$/,"N");maker="Cordis";product="SABER .035";spec=`REF ${ref}`}
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="cleaner"){maker="Argon";product="CLEANER 15";spec=`REF ${ref}`}
   else if(kind==="powerpicc"){maker="BD";product="PowerPICC Catheter";spec=`REF ${ref}`}
@@ -1121,13 +1130,14 @@ function showInterim(list,pid){
   const ap=$("bApply");if(ap){ap.disabled=true;ap.textContent="분석 중... 끝나면 반영할 수 있어요"}
 }
 const NAME_COVER={genoss:["python picc","genoss Picc"],mustang:["mustang(long)150-200"]};   // 같은 라벨의 이름이 다른 행 이름으로 읽히는 경우
+const WIDE_ROWS=new Set(["inpact"]);   // 라벨이 가로로 넓은 제품은 이름과 코드 글자가 더 멀리 떨어져요
 function leftoverName(covered,nameList,W,H){
-  const D=.12*Math.max(W,H),free=nameList.slice();
+  const M=Math.max(W,H),free=nameList.slice();
   for(const c of covered){const rc=classify(c,null);let bi=-1,bd=1e9;
     free.forEach((o,i)=>{const same=o.row===rc,alias=!same&&(NAME_COVER[o.row]||[]).includes(rc);
       if(!same&&!alias)return;
       if(alias&&Math.abs(o.y-c.y)>.02*Math.max(W,H))return;   // 위아래로 붙은 다른 띠 라벨을 같은 라벨로 착각하지 않게
-      const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<D&&d<bd){bd=d;bi=i}});
+      const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<(same&&WIDE_ROWS.has(rc)?.16:.12)*M&&d<bd){bd=d;bi=i}});
     if(bi>=0)free.splice(bi,1)}
   return free;
 }
