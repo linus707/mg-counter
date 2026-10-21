@@ -549,7 +549,10 @@ function showResult(A){
   $("bCopyC").onclick=()=>{   // 병동 앱 '사용 물품 · 수량 확인 댓글'에 붙여넣는 형식: 물품명·규격·사용 개수 + 판단 근거
     const labs=[...new Set([...secs.values()].map(v=>v.label).filter(Boolean))],day=labs.length?labs.join(", "):D();
     const tot=SL.reduce((t,x)=>t+x.n,0),hasHand=SL.some(x=>/\(손글씨\)/.test(x.p)),hasMan=SL.some(x=>/\(직접\)/.test(x.p));
-    const t=`[사용 물품 수량 확인] ${day} · 사진 ${A.photos}장\n`+SL.map(x=>`- ${x.p}${x.sp&&x.sp!=="-"&&!x.p.includes(x.sp)?" · "+x.sp:""} · ${x.n}개`).join("\n")+`\n합계 ${tot}개\n판단 근거: 스티커 인쇄 글자(REF·GTIN·제품명) 자동 인식`+(hasHand?", 손글씨 정(正) 막대 획 수":"")+(hasMan?", 직접 센 개수":"")+" (mg-counter)";
+    // 타이핑에 필요 없는 것은 빼요: REF·제품 코드(규격 칸), 카테터 길이 ' / 75cm', '(손글씨)'·'(직접)' 표시. 빼고 나서 같아진 줄은 합쳐요
+    const csp=sp=>{if(!sp||sp==="-"||/^REF\b/i.test(sp)||!/\d\s*(mm|cm|F)\b|lumen/i.test(sp))return "";return sp.replace(/\s*\/\s*\d+\s*cm$/i,"").trim()};
+    const CL=[];for(const x of SL){const p=x.p.replace(/\s*\((손글씨|직접)\)$/,""),sp=csp(x.sp),k=p+"|"+sp,o=CL.find(c=>c.k===k);if(o)o.n+=x.n;else CL.push({k,p,sp,n:x.n})}
+    const t=`[사용 물품 수량 확인] ${day} · 사진 ${A.photos}장\n`+CL.map(x=>`- ${x.p}${x.sp&&!x.p.includes(x.sp)?" · "+x.sp:""} · ${x.n}개`).join("\n")+`\n합계 ${tot}개\n판단 근거: 스티커 인쇄 글자(REF·GTIN·제품명) 자동 인식`+(hasHand?", 손글씨 정(正) 막대 획 수":"")+(hasMan?", 직접 센 개수":"")+" (mg-counter)";
     copyText(t,"복사했어요. 사용 물품 수량 확인 댓글에 붙여넣으세요")};
   $("bCopyS").onclick=()=>{const t="제품명\t규격\t개수\n"+SL.map(x=>`${x.p}\t${x.sp}\t${x.n}`).join("\n");(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요. 엑셀에 붙여넣으세요")}catch(e){toast("복사하지 못했어요")}ta.remove()})};
   $("bResX").onclick=()=>{LAST=null;S.last=null;S.tallyAuto={};save();renderTallyHints();$("res").hidden=true;setStatus("합산 결과를 지웠어요. 사진을 다시 올려 주세요.")};
@@ -962,7 +965,7 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="yoroi"){const m=ref.match(/YR(\d{2})-?(\d{2})(\d{2})/);maker="KANEKA";product="YOROI HC";spec=m?`${(+m[2]/10).toFixed(1)}mm x ${+m[3]}mm`:`REF ${ref}`;if(m)ref=`YR${m[1]}-${m[2]}${m[3]}HC`}   // 예) YR75-7060HC = 7.0mm x 60mm
   else if(kind==="smartflex"){maker="Cordis";product="SMART Flex";spec=ref}   // 예) SF08150MV = 8mm x 150mm
-  else if(kind==="powerport"){ref=ref.replace(/^8806060$/,"8808060");maker="BD";product="PowerPort";spec=`REF ${ref}`}
+  else if(kind==="powerport"){ref=ref.replace(/^8806060$/,"8808060");maker="BD";product=ref==="1608062"?"PowerPort ClearVUE isp":"PowerPort isp M.R.I.";spec=`REF ${ref}`}
   else if(kind==="hickman"){maker="BD";product="Hickman 12.5F Triple-Lumen CVC";spec=`REF ${ref}`}
   else if(kind==="cleaner"){maker="Argon";product="CLEANER 15";spec=`REF ${ref}`}
   else if(kind==="powerpicc"){maker="BD";product="PowerPICC Catheter";spec=`REF ${ref}`}
