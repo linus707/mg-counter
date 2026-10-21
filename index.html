@@ -343,7 +343,9 @@ $("bPhoto").onclick=()=>$("fPhoto").click();
 for(const id of ["fShoot","fPhoto"])$(id).onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)runBatch(fs)};
 let stopAll=false,busy=false;
 // 폰 앱처럼: 서비스 워커 등록, 갤러리 '공유 → 카운터'로 받은 사진은 바로 인식해요
-if("serviceWorker" in navigator&&window.isSecureContext)navigator.serviceWorker.register("sw.js").catch(()=>{});
+if("serviceWorker" in navigator&&window.isSecureContext){navigator.serviceWorker.register("sw.js").catch(()=>{});
+  // 서비스 워커가 처음 설치되면 한 번만 새로고침해서 '여러 코어 계산'을 켜요
+  navigator.serviceWorker.ready.then(()=>{try{if(!self.crossOriginIsolated&&navigator.serviceWorker.controller&&!sessionStorage.getItem("mg-iso")){sessionStorage.setItem("mg-iso","1");location.reload()}else if(!navigator.serviceWorker.controller&&!sessionStorage.getItem("mg-iso")){sessionStorage.setItem("mg-iso","1");navigator.serviceWorker.addEventListener("controllerchange",()=>location.reload(),{once:true})}}catch(e){}})}
 (async()=>{const n=+new URLSearchParams(location.search).get("shared")||0;if(!n||!window.caches)return;
   try{const c=await caches.open("mg-share"),fs=[];for(let i=0;i<n;i++){const r=await c.match(`./shared/${i}`);if(!r)continue;const b=await r.blob();fs.push(new File([b],decodeURIComponent(r.headers.get("x-name")||`photo${i+1}.jpg`),{type:b.type||"image/jpeg"}));await c.delete(`./shared/${i}`)}
     history.replaceState(null,"",location.pathname);if(fs.length){setStatus(`공유받은 사진 ${fs.length}장을 인식할게요`);runBatch(fs)}}catch(e){console.warn("공유 사진",e)}})();
@@ -746,8 +748,8 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
   return lines;
 }
 // ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
-async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
-  await loadScript("ocr2/ppocr.js?v=22").catch(()=>{});
+async function ppPass(bmp,sx,sy,sw,sh,longSide,rot,done){
+  await loadScript("ocr2/ppocr.js?v=26").catch(()=>{});
   if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
   rot=rot||0;
   const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
@@ -755,9 +757,10 @@ async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
   const x=c.getContext("2d");
   if(rot===90){x.translate(c.width,0);x.rotate(Math.PI/2)}else if(rot===270){x.translate(0,c.height);x.rotate(-Math.PI/2)}
   x.drawImage(bmp,sx,sy,sw,sh,0,0,cw,ch);
-  const L=await PPOCR.recognize(c,{detSide:Math.max(c.width,c.height)}),out=[];
+  const skip=rot?[]:(done||[]).filter(l=>(l.conf||0)>=.97&&l.w&&String(l.text).length>=5).map(l=>({x0:(l.x-l.w/2-sx)*sc,x1:(l.x+l.w/2-sx)*sc,y0:(l.y-l.h/2-sy)*sc,y1:(l.y+l.h/2-sy)*sc}));
+  const L=await PPOCR.recognize(c,{detSide:Math.max(c.width,c.height),skip}),out=[];
   for(const l of L){let u=l.x,v=l.y;if(rot===90){u=l.y;v=c.width-l.x}else if(rot===270){u=c.height-l.y;v=l.x}
-    out.push({text:l.text,x:u/sc+sx,y:v/sc+sy,conf:l.conf,w:(rot?l.h:l.w)/sc,h:(rot?l.w:l.h)/sc,xs:!rot&&l.pos?l.pos.map(f=>(l.x-l.w/2+f*l.w)/sc+sx):null})}   // xs: 글자별 가로 위치
+    out.push({text:l.text,x:u/sc+sx,y:v/sc+sy,conf:l.conf,w:(rot?l.h:l.w)/sc,h:(rot?l.w:l.h)/sc,xs:!rot&&l.px?l.px.map(v=>v/sc+sx):null})}   // xs: 글자별 가로 위치
   return out;
 }
 // ---------- 내 글씨 배우기: 읽은 손글씨 숫자를 고쳐 주면 이 기기에 저장해서 다음부터 더 잘 읽어요 ----------
@@ -1114,12 +1117,12 @@ async function ocrStage(bmp,list,say){
   if(usePP){
     try{
       say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
-      await loadScript("ocr2/ppocr.js?v=22");await PPOCR.load(say);
+      await loadScript("ocr2/ppocr.js?v=26");await PPOCR.load(say);
       const pp=[[0,0,W,H,1920]];
       if($("oTile").checked){   // 겹치는 2x2 조각 (스티커가 작게 찍힌 사진도 글자가 커져서 읽혀요)
         const tw=W*.6,th=H*.6;for(const fy of [0,.4])for(const fx of [0,.4])pp.push([W*fx,H*fy,tw,th,1920]);
       }
-      for(let k=0;k<pp.length&&!stopAll;k++){say(`정밀 글자 인식 중이에요... ${k+1}/${pp.length}`);lines.push(...await ppPass(bmp,...pp[k]))}
+      for(let k=0;k<pp.length&&!stopAll;k++){say(`정밀 글자 인식 중이에요... ${k+1}/${pp.length}`);lines.push(...await ppPass(bmp,...pp[k],0,k?lines:null))}
       if(!stopAll&&!ocrStickers(lines).length){for(const rot of [90,270]){if(stopAll)break;say(`글자가 안 보여서 사진을 ${rot}도 돌려서 다시 읽는 중이에요...`);lines.push(...await ppPass(bmp,0,0,W,H,1920,rot))}}
       ppOk=true;
     }catch(e){say("정밀 글자 인식을 쓰지 못해 기존 방식으로 읽어요: "+(e&&e.message||e));console.warn(e)}
@@ -1473,7 +1476,7 @@ async function readTally(bmp,lines,W,H){
     let xm=W;for(const o of lines){if(o===l)continue;const ow=o.w||0,ox=o.x-ow/2;if(Math.abs(o.y-n.y)<n.h*.8&&ox>split+2&&ox<xm&&String(o.text||"").replace(/[\s\-—一_TF下丅止正]/g,"").length>=2&&!(Math.abs(o.y-l.y)<n.h*.5&&ox<l.x+l.w/2))xm=ox}
     xm=Math.min(xm,split+n.h*2.6);   // 막대는 이름 바로 뒤에 써요
     const pr=lines.filter(o=>o!==l&&!(Math.abs(o.y-l.y)<n.h*.5&&o.x-(o.w||0)/2<xm-2&&o.x+(o.w||0)/2>n.x-n.w/2)&&!/^[\s\-—一_TF下丅止正]*$/.test(o.text||"")).map(o=>({text:o.text,conf:o.conf||.7,x:o.x*sc,y:o.y*sc,w:(o.w||60)*sc,h:(o.h||20)*sc}));
-    const r=await PPOCR.strokes(c,{x0:(n.x-n.w/2)*sc,x1:xm*sc,y:n.y*sc,bh:n.h*(l.hand?.5:.7)*sc,split:split*sc,faint:!!l.hand},pr);   // 연필 손글씨는 흐린 막대도 잉크로 봐요
+    const r=await PPOCR.strokes(c,{cut:true,x0:split*sc,x1:xm*sc,y:n.y*sc,bh:n.h*(l.hand?.5:.7)*sc,split:split*sc,faint:!!l.hand},pr);   // 연필 손글씨는 흐린 막대도 잉크로 봐요
     dbg.push({name:n.name,raw:n.text,split:split|0,xm:xm|0,n:r.n,tn:n.tn,c:r.comps.map(o=>[o.x/sc|0,o.w,o.h,o.len,o.ends,o.J,o.s])});
     out.push({name:n.name,n:r.n||n.tn,marks:r.n?tallyStr(r.n):n.marks,raw:n.text,x:n.x,y:n.y});
   }

@@ -7,7 +7,8 @@
   let det=null,rec=null,dict=null,ready=null;
   const load=(say)=>ready||(ready=(async()=>{
     if(!window.ort){await new Promise((ok,no)=>{const s=document.createElement("script");s.src=BASE+"ort.wasm.min.js";s.onload=ok;s.onerror=()=>no(new Error("onnxruntime 을 불러오지 못했어요"));document.head.appendChild(s)})}
-    ort.env.wasm.wasmPaths=BASE;ort.env.wasm.numThreads=1;ort.env.wasm.proxy=true;   // proxy: 화면이 멈추지 않게 별도 스레드에서 계산
+    ort.env.wasm.wasmPaths=BASE;ort.env.wasm.numThreads=self.crossOriginIsolated?Math.max(1,Math.min(4,(navigator.hardwareConcurrency||2)-1)):1;   // 격리된 페이지면 여러 코어로 계산 (서비스 워커가 격리 헤더를 붙여요)
+    ort.env.wasm.proxy=true;   // proxy: 화면이 멈추지 않게 별도 스레드에서 계산
     say&&say("글자 인식 모델을 내려받는 중이에요 (처음 한 번, 약 26MB)...");
     const get=async(f,t)=>{const r=await fetch(BASE+f);if(!r.ok)throw new Error(f+" 다운로드 실패 "+r.status);return t?r.text():r.arrayBuffer()};
     const [d,r,k]=await Promise.all([get("det.onnx"),get("rec.onnx"),get("keys.txt",1)]);
@@ -90,9 +91,11 @@
     await load();opt=opt||{};
     const boxes=await detect(canvas,opt.detSide||1920,opt.low),lines=[];
     boxes.sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
+    const skip=opt.skip||[];
     for(const b of boxes){
+      const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2;if(skip.some(k=>cx>k.x0&&cx<k.x1&&cy>k.y0&&cy<k.y1&&b.x1-b.x0<(k.x1-k.x0)*1.4))continue;   // 이미 확실히 읽은 줄은 다시 읽지 않아요 (속도)
       let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
-      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null});
+      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null,px:b.y1-b.y0>(b.x1-b.x0)*1.6?null:b.ang!=null?r.pos.map(f=>b.cx+(f-.5)*b.L*Math.cos(b.ang)):r.pos.map(f=>b.x0+f*(b.x1-b.x0))});   // px: 글자별 가로 위치 (기울어진 줄도)
     }
     return lines;
   }
@@ -349,7 +352,7 @@
         for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=qx+dx,yy=qy+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const k=yy*w+xx;if(ink[k]&&!lab[k]){lab[k]=nl;st.push(k)}}}
       const bw=cx1-cx0+1,bhh=cy1-cy0+1;
       if(Math.max(bw,bhh)<bh*.22)continue;                                   // 점·잡티
-      if(cx0===0&&x0>0&&sx/pts.length<w*.1)continue;                          // 왼쪽 가장자리에 걸린 이름 글씨 조각
+      if(cx0===0&&x0>0&&(req.cut?!(bw>bhh*2.5&&bw>bh*.6):sx/pts.length<w*.1))continue;   // 왼쪽 가장자리에 걸린 이름 글씨 조각 (막대처럼 낮고 긴 건 남겨요)
       comps.push({pts,cx0,cy0,cx1,cy1,bw,bh:bhh,mx:x0+sx/pts.length})}
     let n=0;const out=[];
     for(const c of comps){
