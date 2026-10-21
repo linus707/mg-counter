@@ -1288,9 +1288,9 @@ function renderTally(){
   $("tList").querySelectorAll("button[data-x]").forEach(b=>b.onclick=()=>{S.tally.splice(+b.dataset.x,1);save();renderTally();if(LAST)showResult(analyze(LAST.list,LAST.over,LAST))});
 }
 // 손글씨 이름 → 엑셀 행 (엑셀에 그 행이 있을 때만)
-const TROW={"EQ PCN":"eq pcn drain","EQ cath":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
+const TROW={"Safety":"celsite port","EQ PCN":"eq pcn drain","EQ cath":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
 function tallyRows(){   // 결과표에 합칠 행: 엑셀 행 순서에 맞춰 정렬하기 위한 순서값 포함
-  const man=(S.tally||[]).filter(t=>t.n>0).map(t=>{const row=rowExact(t.name),i=row?S.rows.indexOf(row):-1;return {p:t.name,sp:t.spec||"-",n:t.n,o:i<0?1e6-1:i,tally:true}});
+  const man=(S.tally||[]).filter(t=>t.n>0).map(t=>{const row=rowExact(t.name)||rowExact(TROW[Object.keys(TROW).find(k=>k.toLowerCase()===t.name.toLowerCase())]||""),i=row?S.rows.indexOf(row):-1;return {p:row||t.name,sp:t.spec||"-",n:t.n,o:i<0?1e6-1:i,tally:true}});
   const by={};for(const k in (S.tallyAuto||{}))for(const t of S.tallyAuto[k])if(t.n>0)by[t.name]=(by[t.name]||0)+t.n;   // 사진에서 자동으로 센 막대
   const auto=Object.keys(by).map(nm=>{const row=rowExact(TROW[nm]||nm),i=row?S.rows.indexOf(row):-1;return {p:row||nm,sp:"-",n:by[nm],o:i<0?1e6-1:i,tally:true,auto:true}});
   return man.concat(auto);
