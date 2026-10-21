@@ -931,11 +931,11 @@ function ocrNameStickers(lines,W,H){
   return out;
 }
 // 이름만 읽힌 스티커 주변 글자에서 '7mm x 100mm', '6 mm X 6 cm' 같은 규격을 찾아요 (이름 줄 또는 바로 아래 줄들)
-function nearbySpec(lines,o,M){
-  const rx=/(\d{1,2}(?:\.\d)?)\s*(?:mm|MM|F|Fr)?\s*[x×X*]\s*(\d{1,3}(?:\.\d)?)\s*(mm|MM|cm|CM)\b/;
+function nearbySpec(lines,o,M){   // 같은 스티커 안(이름 바로 아래 줄)만 봐요
+  const rx=/(?<![\d.])(\d{1,2}(?:\.\d)?)\s*(?:mm|MM|F|Fr)?\s*[x×X*]\s*(\d{1,3}(?:\.\d)?)\s*(mm|MM|cm|CM)(?![a-wyz])/;   // 7.0mmX220mmX75cm 처럼 붙어 있어도 첫 두 숫자(굵기×길이)
   let best=null,bd=1e9;
   for(const l of lines){const m=rx.exec(l.text);if(!m)continue;const dy=l.y-o.y,dx=Math.abs(l.x-o.x);
-    if(dy<-.015*M||dy>.09*M||dx>.2*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
+    if(dy<-.015*M||dy>.06*M||dx>.1*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
   if(!best)return "";const L=/cm/i.test(best[3])?+best[2]*10:+best[2];return `${+best[1]}mm x ${L}mm`;
 }
 const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"],[/\bSF\d{5}MV\b/g,"smartflex"],[/\b(?:880[68]060|1608062)\b/g,"powerport"],[/\b0600650\b/g,"hickman"]];
