@@ -32,12 +32,12 @@
   }
 
   // 글자 줄 찾기: 확률 지도를 이진화 → 덩어리(연결 성분) → 박스 → 살짝 넓히기
-  async function detect(canvas,side){
+  async function detect(canvas,side,low){
     const W=canvas.width,H=canvas.height,s=Math.min(1,side/Math.max(W,H)),w=m32(W*s),h=m32(H*s);
     const inp=toBGR(canvas,w,h,[.485,.456,.406],[.229,.224,.225],false);
     const out=await det.run({[det.inputNames[0]]:new ort.Tensor("float32",inp,[1,3,h,w])});
     const P=out[det.outputNames[0]].data,n=w*h,seen=new Uint8Array(n),stack=new Int32Array(n),boxes=[];
-    const TH=.3;
+    const TH=low?.15:.3;
     for(let i=0;i<n;i++){
       if(seen[i]||P[i]<=TH)continue;
       let sp=0,cnt=0,sum=0,x0=w,y0=h,x1=0,y1=0,mx=0,my=0,mxx=0,myy=0,mxy=0;stack[sp++]=i;seen[i]=1;
@@ -48,7 +48,7 @@
         if(qy>0&&!seen[q-w]&&P[q-w]>TH){seen[q-w]=1;stack[sp++]=q-w}
         if(qy<h-1&&!seen[q+w]&&P[q+w]>TH){seen[q+w]=1;stack[sp++]=q+w}}
       const bw=x1-x0+1,bh=y1-y0+1;
-      if(cnt<12||Math.min(bw,bh)<3||sum/cnt<.55)continue;
+      if(cnt<12||Math.min(bw,bh)<3||sum/cnt<(low?.3:.55))continue;
       const dist=(bw*bh)*1.6/(2*(bw+bh)),k=1/s;                    // DB 후처리의 unclip
       const px=Math.min(bh*.35,dist);   // 줄 끝 글자가 잘리지 않도록 가로로 조금 더 넓혀요
       const box={x0:Math.max(0,(x0-dist-px)*k),y0:Math.max(0,(y0-dist)*k),x1:Math.min(W,(x1+dist+px)*k),y1:Math.min(H,(y1+dist)*k)};
@@ -88,7 +88,7 @@
 
   async function recognize(canvas,opt){
     await load();opt=opt||{};
-    const boxes=await detect(canvas,opt.detSide||1920),lines=[];
+    const boxes=await detect(canvas,opt.detSide||1920,opt.low),lines=[];
     boxes.sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
     for(const b of boxes){
       let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
@@ -193,7 +193,36 @@
     return groups.map(G=>{const t=G.items.map(i=>i.d).join(""),p=Math.min(...G.items.map(i=>i.p));
       return {text:t,num:+t,conf:p,x:(G.x0+G.x1)/2,y:(G.y0+G.y1)/2,w:G.x1-G.x0,h:G.h,items:G.items.map(i=>({d:i.d,p:i.p,v:i.v,how:i.how}))}});
   }
-  window.PPOCR={load,recognize,handwriting,setUserSamples};
+  async function readBox(canvas,b){await load();return readLine(canvas,b)}
+  // 흐린 손글씨(연필) 줄 찾기: 글자 찾기 모델이 놓친 얇은 잉크를 직접 묶어 줄로 만들고, 그 칸을 바로 읽어요.
+  // printed: 이미 읽은 줄 [{x,y,w,h}] (canvas 좌표) — 그 안의 잉크는 빼요
+  async function handLines(canvas,printed,opt){
+    await load();opt=opt||{};
+    const W=canvas.width,H=canvas.height,n=W*H,d=canvas.getContext("2d",{willReadFrequently:true}).getImageData(0,0,W,H).data,g=new Float32Array(n);
+    for(let i=0,p=0;i<n;i++,p+=4)g[i]=Math.min(d[p],d[p+1],d[p+2]);
+    const I=new Float64Array((W+1)*(H+1));for(let y=0;y<H;y++){let r=0;for(let x=0;x<W;x++){r+=g[y*W+x];I[(y+1)*(W+1)+x+1]=I[y*(W+1)+x+1]+r}}
+    const R=16,ink=new Uint8Array(n);
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){const x0=Math.max(0,x-R),x1=Math.min(W,x+R+1),y0=Math.max(0,y-R),y1=Math.min(H,y+R+1),m=(I[y1*(W+1)+x1]-I[y0*(W+1)+x1]-I[y1*(W+1)+x0]+I[y0*(W+1)+x0])/((x1-x0)*(y1-y0)),v=g[y*W+x];if(v<m*.87&&v<m-15&&m>110)ink[y*W+x]=1}
+    for(const l of printed||[]){const a0=Math.max(0,Math.round(l.x-l.w/2-4)),a1=Math.min(W,Math.round(l.x+l.w/2+4)),b0=Math.max(0,Math.round(l.y-l.h/2-4)),b1=Math.min(H,Math.round(l.y+l.h/2+4));for(let y=b0;y<b1;y++)ink.fill(0,y*W+a0,y*W+a1)}
+    // 글자 사이를 잇도록 가로로 넓혀서 덩어리 찾기
+    const lab=new Int32Array(n),comps=[];let nl=0;const GX=9,GY=3;
+    for(let i=0;i<n;i++){if(!ink[i]||lab[i])continue;nl++;const st=[i];lab[i]=nl;let x0=W,y0=H,x1=0,y1=0,cnt=0;
+      while(st.length){const q=st.pop(),qx=q%W,qy=(q-qx)/W;cnt++;if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
+        for(let dy=-GY;dy<=GY;dy++)for(let dx=-GX;dx<=GX;dx++){const xx=qx+dx,yy=qy+dy;if(xx<0||yy<0||xx>=W||yy>=H)continue;const k=yy*W+xx;if(ink[k]&&!lab[k]){lab[k]=nl;st.push(k)}}}
+      const bw=x1-x0+1,bh=y1-y0+1;if(bh<12||bh>110||bw<10||bw>700)continue;if(cnt/(bw*bh)>.3)continue;   // 바코드·QR처럼 빽빽한 것은 빼요
+      comps.push({x0,y0,x1,y1,bw,bh})}
+    // 같은 줄끼리 묶기
+    comps.sort((a,b)=>a.x0-b.x0);const L=[];
+    for(const c of comps){const g2=L.find(G=>{const gh=G.y1-G.y0,mh=Math.max(gh,c.bh);return (Math.abs((G.y0+G.y1)/2-(c.y0+c.y1)/2)<mh*.6||Math.min(G.y1,c.y1)-Math.max(G.y0,c.y0)>-mh*.3)&&c.x0-G.x1<mh*1.2&&c.x0-G.x1>-10});   // 가운데 높이가 비슷하고 가까우면 같은 줄
+      if(g2){g2.x1=Math.max(g2.x1,c.x1);g2.y0=Math.min(g2.y0,c.y0);g2.y1=Math.max(g2.y1,c.y1);g2.k++}else L.push({x0:c.x0,y0:c.y0,x1:c.x1,y1:c.y1,k:1})}
+    const cand=L.filter(G=>{const w=G.x1-G.x0,h=G.y1-G.y0;return w>=h*1.6&&w<=h*14&&h>=14}).sort((a,b)=>(b.x1-b.x0)-(a.x1-a.x0)).slice(0,opt.max||40);
+    const out=[];
+    for(const G of cand){const h=G.y1-G.y0,pd=Math.round(h*.25),b={x0:Math.max(0,G.x0-pd),y0:Math.max(0,G.y0-pd),x1:Math.min(W,G.x1+pd),y1:Math.min(H,G.y1+pd)};
+      let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
+      if(r&&r.text.trim()&&r.conf>=.4)out.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:r.pos,hand:true})}
+    return out;
+  }   // 글자 찾기 없이 정한 칸만 바로 읽기
+  window.PPOCR={load,recognize,handwriting,setUserSamples,readBox,handLines};
 
   // ---------- 날짜 구간 나누기: 시트에 손으로 그은 가로 구분선 찾기 ----------
   // 길고 가는 (두께 6px 이하) 가로 잉크 선만 찾아요. 반환: [{x0,x1,ya,yb}] (ya: 왼쪽 끝 y, yb: 오른쪽 끝 y) — canvas 좌표
@@ -309,7 +338,7 @@
     const ink0=new Uint8Array(w*h);
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){const gx=x+x0-X0,gy=y+y0-Y0,a0=Math.max(0,gx-hw),a1=Math.min(WW,gx+hw+1),b0=Math.max(0,gy-hw),b1=Math.min(HH,gy+hw+1);
       const mean=(I[b1*(WW+1)+a1]-I[b0*(WW+1)+a1]-I[b1*(WW+1)+a0]+I[b0*(WW+1)+a0])/((a1-a0)*(b1-b0));const v=g[gy*WW+gx];
-      if(v<mean*.7&&v<150&&!red[gy*WW+gx])ink0[y*w+x]=1}
+      if((req.faint?v<mean*.87&&v<mean-15:v<mean*.7&&v<150)&&!red[gy*WW+gx])ink0[y*w+x]=1}
     const pr=(printed||[]).filter(l=>l.conf>=.6&&String(l.text).replace(/\s/g,"").length>=3);
     for(const l of pr){const a0=Math.max(0,Math.round(l.x-l.w/2-x0)),a1=Math.min(w,Math.round(l.x+l.w/2-x0)),b0=Math.max(0,Math.round(l.y-l.h/2-y0)),b1=Math.min(h,Math.round(l.y+l.h/2-y0));for(let y=b0;y<b1;y++)for(let x=a0;x<a1;x++)ink0[y*w+x]=0}
     const ink=new Uint8Array(w*h);   // 2px 넓혀서 끊긴 획을 이어요

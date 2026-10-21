@@ -102,9 +102,9 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
 
 <section>
   <h2>날짜와 엑셀</h2>
-  <div class="row"><input type="date" id="date"><button id="bXls">엑셀 불러오기</button></div>
+  <div class="row"><input type="date" id="date"><button id="bXls">월사용량 엑셀 올리기 (한 번만)</button></div>
   <input type="file" id="fXls" accept=".xlsx,.xls" hidden>
-  <div class="hint" id="xlsInfo">엑셀을 불러오면 그 달 시트의 제품 순서와 날짜 열의 기존 값을 가져와요. 파일은 이 기기 밖으로 나가지 않아요.</div>
+  <div class="hint" id="xlsInfo">월사용량 엑셀을 한 번 올리면 이 기기에 고정돼요. 센 개수를 그 엑셀의 날짜 칸에 자동으로 적어 새 파일로 받을 수 있어요. 파일은 이 기기 밖으로 나가지 않아요.</div>
 </section>
 
 <section>
@@ -112,7 +112,7 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <div class="row"><button id="bShoot" class="pri">사진 촬영</button><button id="bPhoto">사진 첨부 (여러 장 가능)</button><button id="bPhotoX" class="sm" hidden>사진 닫기</button></div>
   <input type="file" id="fShoot" accept="image/*" capture="environment" hidden>
   <input type="file" id="fPhoto" accept="image/*" multiple hidden>
-  <div class="row" id="aiOpts">
+  <div class="row" id="aiOpts" hidden>   <!-- 설정 화면은 숨김 (기본값으로 동작) -->
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>꼼꼼히 읽기 (느리지만 작은 바코드도 찾아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oBar">바코드도 함께 읽기 (끄면 글자만으로 인식 · 빠름 · 기본)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oOcr" checked>인쇄된 글자도 읽기 (느림 · 처음 한 번 약 7MB 내려받아요)</label>
@@ -123,14 +123,14 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAI">AI로 정확도 높이기 (손글씨·놓친 스티커 보강 · API 키 필요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAuto">경고가 없으면 확인 없이 바로 반영</label>
   </div>
-  <details id="keyBox"><summary>AI 보강 설정 (Claude API 키, 선택)</summary>
+  <details id="keyBox" hidden><summary>AI 보강 설정 (Claude API 키, 선택)</summary>
     <div class="hint">AI는 바코드·글자로 못 읽은 부분(손글씨 숫자, 놓친 스티커)만 보강해요. 키는 이 기기에만 저장돼요. AI를 켜면 사진이 Anthropic 서버로 전송돼요. 환자 정보가 보이는 사진은 올리지 마세요. 사용 한도를 정한 전용 키를 권해요.</div>
     <div class="row"><input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off"><button id="bKeySave" class="sm">저장</button><button id="bKeyTest" class="sm">연결 테스트</button><button id="bKeyDel" class="sm">삭제</button></div>
     <label class="scanner"><input type="checkbox" id="oKeyKeep">이 기기에 계속 저장 (끄면 탭을 닫을 때 지워져요)</label>
     <div class="hint" id="keyState"></div>
   </details>
   <div id="pipe" class="hint" aria-live="polite"></div>
-  <div id="aiStatus" class="hint" role="status">시트 사진을 찍거나 첨부하면 스티커의 바코드를 읽어서 제품명·규격별 개수를 계산해요. AI 연결이나 API 키가 필요 없고, 사진은 이 기기 밖으로 나가지 않아요. 한 번 알려준 제품은 기억해요.</div>
+  <div id="aiStatus" class="hint" role="status"></div>
   <div class="row" id="aiStopRow" hidden><button id="bStop">중지</button></div>
   <div id="hwPanel" hidden style="margin:10px 0"></div><div id="res" hidden></div>
   <div id="photoBox" hidden>
@@ -518,7 +518,7 @@ function showResult(A){
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
   const unk=A.groups.filter(x=>!x.row),unkN=unk.reduce((t,x)=>t+x.n,0);   // 엑셀에 없는 제품은 집계에서 제외
   const SL=A.groups.filter(x=>x.row).map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).concat(tallyRows().map(r=>({...r,p:r.p+(r.auto?" (손글씨)":" (직접)")}))).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
-  const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div>${unkN?`<div class="hint">엑셀에 없는 제품 ${unk.length}종(${unkN}개)은 집계에서 뺐어요: ${esc(unk.slice(0,6).map(x=>x.product.replace(/^GTIN /,"바코드 ")+(x.spec&&x.spec!=="-"?" "+x.spec:"")).join(", "))}${unk.length>6?" 외":""}. 포함하려면 '자세히 보기'에서 엑셀 행을 고르세요.</div>`:""}<div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button> <button id="bCopyC" class="sm">수량 확인 댓글용 복사</button></div>`;
+  const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div>${unkN?`<div class="hint">엑셀에 없는 제품 ${unk.length}종(${unkN}개)은 집계에서 뺐어요: ${esc(unk.slice(0,6).map(x=>x.product.replace(/^GTIN /,"바코드 ")+(x.spec&&x.spec!=="-"?" "+x.spec:"")).join(", "))}${unk.length>6?" 외":""}. 포함하려면 '자세히 보기'에서 엑셀 행을 고르세요.</div>`:""}<div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button> <button id="bCopyC" class="sm">수량 확인 댓글용 복사</button> <button id="bFillXl" class="sm pri">월사용량 엑셀에 자동 기입</button></div>`;
   // 날짜(구간)별 표: 제품·규격 × 구간. 구간이 둘 이상일 때만 보여줘요.
   const SECK=x=>`${x.src||1}|${x.sec||1}`,secs=new Map(),cell={};
   for(const st of (LAST&&LAST.list)||[]){
@@ -555,6 +555,7 @@ function showResult(A){
     S.last={...(S.last||{}),list:LAST.list};save();showResult(analyze(LAST.list,LAST.over,LAST));
   });
   if(secHtml)$("bCopySec").onclick=()=>{const t="제품명\t규격\t"+cols.map(colName).join("\t")+"\n"+secRows.map(r=>`${r.p}\t${r.sp}\t`+cols.map(c=>r.c[c[0]]||"").join("\t")).join("\n");(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요")}catch(e){toast("복사하지 못했어요")}ta.remove()})};
+  $("bFillXl").onclick=fillExcel;
   $("bCopyC").onclick=()=>{   // 병동 앱 '사용 물품 · 수량 확인 댓글'에 붙여넣는 형식: 물품명·규격·사용 개수 + 판단 근거
     const labs=[...new Set([...secs.values()].map(v=>v.label).filter(Boolean))],day=labs.length?labs.join(", "):D();
     const tot=SL.reduce((t,x)=>t+x.n,0),hasHand=SL.some(x=>/\(손글씨\)/.test(x.p)),hasMan=SL.some(x=>/\(직접\)/.test(x.p));
@@ -746,7 +747,7 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
 }
 // ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
 async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
-  await loadScript("ocr2/ppocr.js?v=13").catch(()=>{});
+  await loadScript("ocr2/ppocr.js?v=22").catch(()=>{});
   if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
   rot=rot||0;
   const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
@@ -1113,7 +1114,7 @@ async function ocrStage(bmp,list,say){
   if(usePP){
     try{
       say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
-      await loadScript("ocr2/ppocr.js?v=13");await PPOCR.load(say);
+      await loadScript("ocr2/ppocr.js?v=22");await PPOCR.load(say);
       const pp=[[0,0,W,H,1920]];
       if($("oTile").checked){   // 겹치는 2x2 조각 (스티커가 작게 찍힌 사진도 글자가 커져서 읽혀요)
         const tw=W*.6,th=H*.6;for(const fy of [0,.4])for(const fx of [0,.4])pp.push([W*fx,H*fy,tw,th,1920]);
@@ -1147,7 +1148,11 @@ async function ocrStage(bmp,list,say){
   if(ppOk&&!stopAll&&$("oDay")&&$("oDay").checked){
     try{const k=await assignSections(bmp,lines,list.concat(extra));if(k)say(`구분선 ${k}개를 찾아 날짜(구간)별로 나눴어요`)}catch(e){console.warn("구간",e)}
   }
-  if(ppOk&&!stopAll){try{extra.tallyHints=await readTally(bmp,lines,W,H)}catch(e){console.warn('정 막대',e);try{extra.tallyHints=parseTallyLines(lines,W,H)}catch(_){}}}
+  let hand=[];   // 흐린 연필 손글씨 줄 (글자 찾기 모델이 놓친 것)
+  if(ppOk&&!stopAll&&PPOCR.handLines){try{const sc=Math.min(1,1920/Math.max(W,H)),c=document.createElement("canvas");c.width=Math.round(W*sc);c.height=Math.round(H*sc);c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);
+    const hl=await PPOCR.handLines(c,lines.map(l=>({x:l.x*sc,y:l.y*sc,w:(l.w||60)*sc,h:(l.h||20)*sc})));
+    hand=hl.map(l=>({text:l.text,conf:l.conf,x:l.x/sc,y:l.y/sc,w:l.w/sc,h:l.h/sc,hand:true,xs:l.pos?l.pos.map(f=>(l.x-l.w/2+f*l.w)/sc):null}))}catch(e){console.warn("손글씨 줄",e)}}
+  if(ppOk&&!stopAll){try{extra.tallyHints=await readTally(bmp,lines.concat(hand),W,H)}catch(e){console.warn('정 막대',e);try{extra.tallyHints=parseTallyLines(lines,W,H)}catch(_){}}}
   if(ppOk&&!stopAll){
     try{
       loadUserDigits();
@@ -1235,10 +1240,86 @@ let WB=null;
 $("bXls").onclick=()=>$("fXls").click();
 $("fXls").onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
-  try{WB=XLSX.read(await f.arrayBuffer(),{type:"array",sheetRows:120});loadXlForDate(true);render()}
+  try{const buf=await f.arrayBuffer();WB=XLSX.read(buf,{type:"array",sheetRows:120});XLF={name:f.name,bytes:new Uint8Array(buf),at:Date.now()};await idbSet("xlsx",XLF);loadXlForDate(true);render();toast("월사용량 엑셀을 이 기기에 고정했어요")}
   catch(err){toast("엑셀을 읽지 못했어요. xlsx 파일인지 확인하세요")}
   e.target.value="";
 };
+// ---------- 월사용량 엑셀 고정 · 자동 기입 ----------
+// 올린 엑셀은 이 기기(IndexedDB)에 저장해 두고, 앱을 다시 열면 자동으로 불러와요.
+let XLF=null;
+function idb(){return new Promise((ok,no)=>{const r=indexedDB.open("mg-counter",1);r.onupgradeneeded=()=>r.result.createObjectStore("files");r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
+async function idbSet(k,v){const db=await idb();return new Promise((ok,no)=>{const t=db.transaction("files","readwrite");t.objectStore("files").put(v,k);t.oncomplete=()=>ok();t.onerror=()=>no(t.error)})}
+async function idbGet(k){const db=await idb();return new Promise((ok,no)=>{const t=db.transaction("files").objectStore("files").get(k);t.onsuccess=()=>ok(t.result);t.onerror=()=>no(t.error)})}
+(async()=>{try{const f=await idbGet("xlsx");if(f&&f.bytes){XLF=f;WB=XLSX.read(f.bytes,{type:"array",sheetRows:120});loadXlForDate(false);render()}}catch(e){console.warn("고정 엑셀",e)}})();
+const colLetter=n=>{let s="";n++;while(n){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26}return s};
+const colIndex=s=>{let n=0;for(const ch of s)n=n*26+ch.charCodeAt(0)-64;return n-1};
+// 사진 결과 → 날짜별·엑셀 행별 개수 (스티커 + 손글씨 막대 + 직접 센 것)
+function fillPlan(){
+  const out={},add=(d,r,n)=>{if(!r||r==="__skip__"||!n)return;const row=rowExact(r);if(!row)return;(out[d]=out[d]||{})[row]=((out[d]||{})[row]||0)+n};
+  const y=D().slice(0,4),lab2d=l=>{const m=/(\d{1,2})\/(\d{1,2})/.exec(l||"");return m?`${y}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`:null};
+  const list=(LAST&&LAST.list)||[],srcDate={};for(const st of list)if(!st.hw&&st.secLabel&&lab2d(st.secLabel)&&!srcDate[st.src||1])srcDate[st.src||1]=lab2d(st.secLabel);
+  // 날짜를 못 읽은 사진은 같이 올린 사진들의 날짜(가장 많은 것)를 따라요. 그것도 없으면 위에서 고른 날짜
+  const cnt={};for(const k in srcDate)cnt[srcDate[k]]=(cnt[srcDate[k]]||0)+1;const def=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]||D();
+  for(const st of list){if(st.hw)continue;add(lab2d(st.secLabel)||srcDate[st.src||1]||def,classify(st,LAST.over),1)}
+  for(const k in (S.tallyAuto||{}))for(const t of S.tallyAuto[k])add(srcDate[k]||def,TROW[t.name]||t.name,t.n);
+  for(const t of (S.tally||[]))add(def,rowExact(t.name)?t.name:TROW[Object.keys(TROW).find(k=>k.toLowerCase()===t.name.toLowerCase())]||t.name,t.n);
+  return out;
+}
+// 엑셀 원본 서식을 그대로 두고 해당 칸의 숫자만 바꿔요 (xlsx 안의 시트 XML을 직접 고침)
+function xmlSetCell(xml,ref,rowNum,val){
+  const ci=colIndex(ref.replace(/\d+/g,""));
+  const rowRe=new RegExp(`<row\\b[^>]*\\br="${rowNum}"[^>]*?(\\/>|>([\\s\\S]*?)<\\/row>)`);
+  const cellXml=s=>`<c r="${ref}"${s?` s="${s}"`:""}><v>${val}</v></c>`;
+  const m=rowRe.exec(xml);
+  if(!m){   // 행이 없으면 순서에 맞게 새로 넣어요
+    const rows=[...xml.matchAll(/<row\b[^>]*\br="(\d+)"/g)],nx=rows.find(r=>+r[1]>rowNum),add=`<row r="${rowNum}">${cellXml("")}</row>`;
+    return nx?xml.slice(0,nx.index)+add+xml.slice(nx.index):xml.replace("</sheetData>",add+"</sheetData>").replace("<sheetData/>",`<sheetData>${add}</sheetData>`)}
+  let row=m[0];
+  if(m[1]==="/>"){row=row.slice(0,-2)+">"+cellXml("")+"</row>";return xml.slice(0,m.index)+row+xml.slice(m.index+m[0].length)}
+  const cRe=new RegExp(`<c\\b[^>]*\\br="${ref}"[^>]*?(\\/>|>[\\s\\S]*?<\\/c>)`),cm=cRe.exec(row);
+  if(cm){const st=(/\bs="(\d+)"/.exec(cm[0])||[])[1];row=row.slice(0,cm.index)+cellXml(st)+row.slice(cm.index+cm[0].length)}
+  else{const cells=[...row.matchAll(/<c\b[^>]*\br="([A-Z]+)\d+"/g)],nx=cells.find(c=>colIndex(c[1])>ci),st=(/\bs="(\d+)"/.exec(m[0].split(">")[0])||[])[1]||"";
+    const ins=nx?nx.index:row.lastIndexOf("</row>");row=row.slice(0,ins)+cellXml(st&&/customFormat="1"/.test(m[0].split(">")[0])?st:"")+row.slice(ins)}
+  return xml.slice(0,m.index)+row+xml.slice(m.index+m[0].length);
+}
+function xlsxPatch(bytes,edits){   // edits: [{sheet, ref, row, val}]
+  const C=XLSX.CFB,z=C.read(bytes,{type:"array"}),dec=new TextDecoder(),enc=new TextEncoder();
+  const get=p=>{const e=C.find(z,p);return e?dec.decode(e.content):null},put=(p,t)=>{const e=C.find(z,p);e.content=enc.encode(t);e.size=e.content.length};
+  const wb=get("/xl/workbook.xml"),rels=get("/xl/_rels/workbook.xml.rels");
+  const bySheet={};for(const e of edits)(bySheet[e.sheet]=bySheet[e.sheet]||[]).push(e);
+  for(const name in bySheet){
+    const sm=new RegExp(`<sheet\\b[^>]*name="${name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}"[^>]*>`).exec(wb);if(!sm)throw new Error(`'${name}' 시트가 없어요`);
+    const rid=(/r:id="([^"]+)"/.exec(sm[0])||/\bid="([^"]+)"/.exec(sm[0]))[1],tg=(new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`).exec(rels)||[""])[0],target=(/Target="([^"]+)"/.exec(tg)||[])[1];
+    const path=target.startsWith("/")?target:"/xl/"+target.replace(/^\.\//,"");let xml=get(path);
+    for(const e of bySheet[name])xml=xmlSetCell(xml,e.ref,e.row,e.val);
+    put(path,xml);
+  }
+  // 합계(Total) 같은 수식이 열 때 다시 계산되게
+  let w2=/<calcPr\b/.test(wb)?wb.replace(/<calcPr\b([^>]*?)\s*\/?>/,(a,b)=>`<calcPr${b.replace(/\s*fullCalcOnLoad="[^"]*"/,"")} fullCalcOnLoad="1"/>`):wb.replace(/(<extLst|<\/workbook>)/,'<calcPr calcId="0" fullCalcOnLoad="1"/>$1');
+  put("/xl/workbook.xml",w2);
+  return new Uint8Array(C.write(z,{fileType:"zip",type:"array",compression:true}));
+}
+async function fillExcel(){
+  if(!XLF){toast("먼저 위에서 월사용량 엑셀을 한 번 올려 주세요");$("bXls").scrollIntoView({behavior:"smooth"});return}
+  const plan=fillPlan(),days=Object.keys(plan).sort();if(!days.length){toast("엑셀에 적을 개수가 없어요");return}
+  const full=XLSX.read(XLF.bytes,{type:"array",sheetRows:200}),edits=[],lines=[],miss=[];
+  for(const d of days){const [y,m,dd]=d.split("-").map(Number),name=`${y}.${m}월`,ws=full.Sheets[name];if(!ws){miss.push(`'${name}' 시트 없음`);continue}
+    const a=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true}),serial=Math.round((Date.UTC(y,m-1,dd)-Date.UTC(1899,11,30))/864e5);
+    const col=(a[0]||[]).findIndex((v,i)=>i>0&&((typeof v==="number"&&Math.round(v)===serial)||(typeof v==="string"&&new RegExp(`^\\s*${m}[./]${dd}\\b`).test(v))));
+    if(col<0){miss.push(`${m}/${dd} 열 없음`);continue}
+    for(const [row,n] of Object.entries(plan[d])){const ri=a.findIndex((r,i)=>i>0&&r&&r[0]!=null&&String(r[0]).trim()===row);if(ri<0){miss.push(`${row} 행 없음`);continue}
+      const old=a[ri][col];edits.push({sheet:name,ref:colLetter(col)+(ri+1),row:ri+1,val:n,old:typeof old==="number"?old:null,lab:`${m}/${dd} ${row}`})}}
+  if(!edits.length){toast("엑셀에서 맞는 칸을 찾지 못했어요");return}
+  const had=edits.filter(e=>e.old!=null);   // 이미 값이 있는 칸: 더할지 바꿀지 물어봐요 (같은 날 시트를 나눠서 올릴 때는 더하기)
+  if(had.length&&confirm(`이미 숫자가 있는 칸이 ${had.length}개예요.\n\n확인 = 기존 값에 더하기\n취소 = 새 값으로 바꾸기\n\n(같은 사진을 두 번 올린 거라면 '취소'를 누르세요)`))for(const e of had)e.val=e.old+e.val;
+  for(const e of edits)lines.push(`${e.lab}: ${e.old==null?"빈칸":e.old} → ${e.val}`);
+  if(!confirm(`월사용량 엑셀에 이렇게 적을까요? (${edits.length}칸)\n\n${lines.join("\n")}${miss.length?"\n\n건너뜀: "+miss.join(", "):""}`))return;
+  try{const out=xlsxPatch(XLF.bytes,edits);XLF={...XLF,bytes:out,at:Date.now()};await idbSet("xlsx",XLF);WB=XLSX.read(out,{type:"array",sheetRows:120});loadXlForDate(false);render();
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));a.download=XLF.name||"월사용량.xlsx";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
+    toast(`${edits.length}칸을 적었어요. 새 엑셀 파일을 받았어요`)}
+  catch(e){console.warn(e);toast("엑셀에 적지 못했어요: "+(e&&e.message||e))}
+}
+async function downloadFixed(){if(!XLF){toast("고정된 엑셀이 없어요");return}const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([XLF.bytes],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));a.download=XLF.name||"월사용량.xlsx";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
 function loadXlForDate(adopt){
   XL={};if(!WB)return;
   const [y,m,d]=D().split("-").map(Number),name=`${y}.${m}월`;
@@ -1251,7 +1332,7 @@ function loadXlForDate(adopt){
   for(let i=1;i<a.length;i++){const n=a[i][0];if(typeof n==="string"&&n.trim().toLowerCase()==="total"){end=i;break}}
   for(let i=1;i<end;i++){const n=a[i][0];rows.push(n==null?null:String(n).trim());const v=a[i][col];if(n!=null&&v!=null&&v!=="")XL[String(n).trim()]=v}
   if(adopt||JSON.stringify(rows)!==JSON.stringify(S.rows)){S.rows=rows;save()}
-  $("xlsInfo").textContent=`'${name}' 시트 ${m}/${d} 열 연결됨 · 제품 ${rows.filter(Boolean).length}개 · 기존 값 ${Object.keys(XL).length}개`;
+  $("xlsInfo").innerHTML=`${XLF?`고정된 엑셀: <b>${esc(XLF.name)}</b> (${new Date(XLF.at).toLocaleString()}) <button class="sm" id="bXlDl">지금 파일 받기</button><br>`:""}'${name}' 시트 ${m}/${d} 열 연결됨 · 제품 ${rows.filter(Boolean).length}개 · 기존 값 ${Object.keys(XL).length}개`;if($("bXlDl"))$("bXlDl").onclick=downloadFixed;
 }
 
 // ---------- 제품 인식 현황 ----------
@@ -1362,7 +1443,7 @@ const glyphCount=(g,bh)=>{if(g.len<bh*.28)return 0;if(g.h<bh*.45||g.w>g.h*2.2)re
 async function readTally(bmp,lines,W,H){
   const M=Math.max(W,H),notes=[];
   for(const l of lines){const t=String(l.text||"");if(t.length>16||(l.conf||0)<.4||/celsite|catheter|port with|impl|powe|pole|balloon|ptab|picc|islant/i.test(t))continue;
-    for(const [re,name] of TNAMES){const m=fuzzyName(t,re,name);if(!m)continue;
+    for(const [re,name] of TNAMES){const m=fuzzyName(t,re,name)||(l.hand&&name==="Fogarty"?/f[a-z]{0,2}g[a-z]*/i.exec(t):null);if(!m)continue;   // 흐린 연필 'Fogarty'는 Fgg처럼 읽혀요
       let e=m.index+m[0].length;while(e<t.length&&/[a-z]/.test(t[e]))e++;if(name==="Human port"&&/^\s?P/.test(t.slice(e)))e=t.indexOf("P",e)+1;   // 이름 글자(소문자)까지가 이름이에요
       const after=t.slice(e);let tn=0,marks="";for(const c of after){const v=TALLY_MARK(c);if(v){tn+=v;marks+=c}}
       const n={name,text:t,tn,marks,line:l,x:l.x,y:l.y,w:l.w||t.length*M*.012,h:l.h||M*.02,e};
@@ -1377,7 +1458,7 @@ async function readTally(bmp,lines,W,H){
     let xm=W;for(const o of lines){if(o===l)continue;const ow=o.w||0,ox=o.x-ow/2;if(Math.abs(o.y-n.y)<n.h*.8&&ox>split+2&&ox<xm&&String(o.text||"").replace(/[\s\-—一_TF下丅止正]/g,"").length>=2&&!(Math.abs(o.y-l.y)<n.h*.5&&ox<l.x+l.w/2))xm=ox}
     xm=Math.min(xm,split+n.h*2.6);   // 막대는 이름 바로 뒤에 써요
     const pr=lines.filter(o=>o!==l&&!(Math.abs(o.y-l.y)<n.h*.5&&o.x-(o.w||0)/2<xm-2&&o.x+(o.w||0)/2>n.x-n.w/2)&&!/^[\s\-—一_TF下丅止正]*$/.test(o.text||"")).map(o=>({text:o.text,conf:o.conf||.7,x:o.x*sc,y:o.y*sc,w:(o.w||60)*sc,h:(o.h||20)*sc}));
-    const r=await PPOCR.strokes(c,{x0:(n.x-n.w/2)*sc,x1:xm*sc,y:n.y*sc,bh:n.h*.7*sc,split:split*sc},pr);
+    const r=await PPOCR.strokes(c,{x0:(n.x-n.w/2)*sc,x1:xm*sc,y:n.y*sc,bh:n.h*(l.hand?.5:.7)*sc,split:split*sc,faint:!!l.hand},pr);   // 연필 손글씨는 흐린 막대도 잉크로 봐요
     dbg.push({name:n.name,raw:n.text,split:split|0,xm:xm|0,n:r.n,tn:n.tn,c:r.comps.map(o=>[o.x/sc|0,o.w,o.h,o.len,o.ends,o.J,o.s])});
     out.push({name:n.name,n:r.n||n.tn,marks:r.n?tallyStr(r.n):n.marks,raw:n.text,x:n.x,y:n.y});
   }
