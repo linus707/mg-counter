@@ -1,0 +1,21 @@
+{
+  "name": "morning-garden 사용량 카운터",
+  "short_name": "카운터",
+  "description": "스티커 시트 사진으로 제품·규격·개수를 셉니다",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14211b",
+  "theme_color": "#14211b",
+  "lang": "ko",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ],
+  "share_target": {
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {"files": [{"name": "photos", "accept": ["image/*"]}]}
+  }
+}

@@ -21,7 +21,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir _site
-          cp index.html _site/
+          cp index.html sw.js manifest.webmanifest icon-192.png icon-512.png _site/
           cp -r ocr _site/ocr
           cp -r ocr2 _site/ocr2
           mkdir _site/v1 _site/v2

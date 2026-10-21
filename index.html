@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>morning-garden 카운터</title>
 <meta name="theme-color" content="#14211b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="카운터">
 <style>
 html{-webkit-text-size-adjust:100%}
 body{margin:0}
@@ -338,6 +342,11 @@ $("bShoot").onclick=()=>$("fShoot").click();
 $("bPhoto").onclick=()=>$("fPhoto").click();
 for(const id of ["fShoot","fPhoto"])$(id).onchange=e=>{const fs=[...e.target.files];e.target.value="";if(fs.length)runBatch(fs)};
 let stopAll=false,busy=false;
+// 폰 앱처럼: 서비스 워커 등록, 갤러리 '공유 → 카운터'로 받은 사진은 바로 인식해요
+if("serviceWorker" in navigator&&window.isSecureContext)navigator.serviceWorker.register("sw.js").catch(()=>{});
+(async()=>{const n=+new URLSearchParams(location.search).get("shared")||0;if(!n||!window.caches)return;
+  try{const c=await caches.open("mg-share"),fs=[];for(let i=0;i<n;i++){const r=await c.match(`./shared/${i}`);if(!r)continue;const b=await r.blob();fs.push(new File([b],decodeURIComponent(r.headers.get("x-name")||`photo${i+1}.jpg`),{type:b.type||"image/jpeg"}));await c.delete(`./shared/${i}`)}
+    history.replaceState(null,"",location.pathname);if(fs.length){setStatus(`공유받은 사진 ${fs.length}장을 인식할게요`);runBatch(fs)}}catch(e){console.warn("공유 사진",e)}})();
 async function runBatch(files){
   if(busy){toast("이전 사진을 읽는 중이에요. 끝나면 다시 올려 주세요");return}
   busy=true;stopAll=false;
