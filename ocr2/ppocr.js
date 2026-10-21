@@ -80,10 +80,10 @@
   async function runRec(inp,W,H){
     const out=await rec.run({[rec.inputNames[0]]:new ort.Tensor("float32",inp,[1,3,H,W])});
     const o=out[rec.outputNames[0]],T=o.dims[1],C=o.dims[2],D=o.data;
-    let last=-1,txt="",cs=0,cn=0;
+    let last=-1,txt="",cs=0,cn=0;const pos=[];
     for(let t=0;t<T;t++){let bi=0,bv=-1;const off=t*C;for(let k=0;k<C;k++){const v=D[off+k];if(v>bv){bv=v;bi=k}}
-      if(bi!==0&&bi!==last){txt+=dict[bi]||"";cs+=bv;cn++}last=bi}
-    return {text:txt,conf:cn?cs/cn:0};
+      if(bi!==0&&bi!==last){const ch=dict[bi]||"";txt+=ch;for(let j=0;j<ch.length;j++)pos.push((t+.5)/T);cs+=bv;cn++}last=bi}
+    return {text:txt,conf:cn?cs/cn:0,pos};   // pos: 글자마다 줄 안에서의 가로 위치(0~1)
   }
 
   async function recognize(canvas,opt){
@@ -92,7 +92,7 @@
     boxes.sort((a,b)=>a.y0-b.y0||a.x0-b.x0);
     for(const b of boxes){
       let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
-      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0});
+      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null});
     }
     return lines;
   }
@@ -261,7 +261,7 @@
     const pr=(printed||[]).filter(l=>l.conf>=.6&&l.text.replace(/\s/g,"").length>=3);
     const out=[];
     for(const nt of notes){
-      const bh=Math.max(nt.h,M*.015),bx0=Math.round(nt.x+nt.w/2+bh*.2),bx1=Math.min(W,Math.round(bx0+Math.max(M*.16,bh*7))),by0=Math.max(0,Math.round(nt.y-bh*1.3)),by1=Math.min(H,Math.round(nt.y+bh*1.3));
+      const bh=Math.max(nt.h,M*.015),bx0=Math.round(nt.x+nt.w/2),bx1=Math.min(W,nt.xmax||W,Math.round(bx0+Math.max(M*.16,bh*7))),by0=Math.max(0,Math.round(nt.y-bh*(nt.xmax?.75:1.3))),by1=Math.min(H,Math.round(nt.y+bh*(nt.xmax?.75:1.3)));
       if(bx1-bx0<10)continue;
       const w=bx1-bx0,h=by1-by0,ink=new Uint8Array(w*h);
       for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(inkAt(bx0+x,by0+y))ink[y*w+x]=1;
@@ -271,7 +271,7 @@
         while(st.length){const q=st.pop(),qx=q%w,qy=(q-qx)/w;cnt++;pts.push(q);if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
           for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=qx+dx,yy=qy+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const k=yy*w+xx;if(ink[k]&&!lab[k]){lab[k]=1;st.push(k)}}}
         const bw=x1-x0+1,bhh=y1-y0+1;
-        if(cnt<bh*.35||Math.max(bw,bhh)<bh*.45)continue;                                   // 점·잡티
+        if(cnt<bh*.2||Math.max(bw,bhh)<bh*.3)continue;                                   // 점·잡티
         const cx=bx0+(x0+x1)/2,cy=by0+(y0+y1)/2;
         if(pr.some(l=>cx>l.x-l.w/2&&cx<l.x+l.w/2&&cy>l.y-l.h/2&&cy<l.y+l.h/2))continue;      // 인쇄 글씨
         blobs.push({x0,y0,x1:x1+1,y1:y1+1,pts,bw,bh:bhh});
@@ -285,12 +285,66 @@
       for(const G of groups){
         const gw=G.x1-G.x0,gh=G.y1-G.y0;if(gw<2||gh<2)continue;
         const m=new Uint8Array(gw*gh);for(const b of G.items)for(const q of b.pts){const qx=q%w-G.x0,qy=((q/w)|0)-G.y0;if(qx>=0&&qy>=0&&qx<gw&&qy<gh)m[qy*gw+qx]=1}
-        const sk=thin(m,gw,gh);let L=0;for(let i=0;i<sk.length;i++)L+=sk[i];
-        gl.push({w:gw,h:gh,len:L,ratio:L/Math.max(bh,gh,gw*.5),x:bx0+(G.x0+G.x1)/2,y:by0+(G.y0+G.y1)/2});
+        const sk=thin(m,gw,gh);let L=0,ends=0,br=0;for(let i=0;i<sk.length;i++)L+=sk[i];
+        for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){if(!sk[y*gw+x])continue;let nb=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const xx=x+dx,yy=y+dy;if(xx>=0&&yy>=0&&xx<gw&&yy<gh&&sk[yy*gw+xx])nb++}if(nb===1)ends++;else if(nb>=3)br++}
+        gl.push({w:gw,h:gh,len:L,ends,br,ratio:L/Math.max(bh,gh,gw*.5),x:bx0+(G.x0+G.x1)/2,y:by0+(G.y0+G.y1)/2,x0:bx0+G.x0,x1:bx0+G.x1});
       }
       out.push({name:nt.text,x:nt.x,y:nt.y,glyphs:gl,bh});
     }
     return out;
   }
   window.PPOCR=Object.assign(window.PPOCR||{},{tally});
+  // ---------- 정(正) 막대 획 수 세기 ----------
+  // 막대는 획 수가 곧 개수예요(一=1, 丅=2, 下=3, 正=5). 잉크 덩어리마다 뼈대(세선화)의 끝점 수 - 1 = 획 수로 셉니다.
+  // req: {x0,x1,y,bh,split} (canvas 좌표). split보다 왼쪽에 중심이 있는 덩어리는 이름 글씨라 빼요.
+  async function strokes(canvas,req,printed){
+    const W=canvas.width,H=canvas.height,M=Math.max(W,H),bh=req.bh;
+    const x0=Math.max(0,Math.round(req.x0)),x1=Math.min(W,Math.round(req.x1)),y0=Math.max(0,Math.round(req.y-bh*1.3)),y1=Math.min(H,Math.round(req.y+bh*1.4));
+    const w=x1-x0,h=y1-y0;if(w<4||h<4)return {n:0,comps:[]};
+    const pad=Math.round(M*.015),X0=Math.max(0,x0-pad),Y0=Math.max(0,y0-pad),X1=Math.min(W,x1+pad),Y1=Math.min(H,y1+pad),WW=X1-X0,HH=Y1-Y0;
+    const d=canvas.getContext("2d",{willReadFrequently:true}).getImageData(X0,Y0,WW,HH).data,g=new Float32Array(WW*HH);
+    const red=new Uint8Array(WW*HH);for(let i=0,p=0;i<WW*HH;i++,p+=4){g[i]=d[p]*.3+d[p+1]*.59+d[p+2]*.11;if(d[p]>d[p+1]+45&&d[p]>d[p+2]+35)red[i]=1}   // 빨간 펜(정정 표시)은 빼요
+    const I=new Float64Array((WW+1)*(HH+1));for(let y=0;y<HH;y++){let r=0;for(let x=0;x<WW;x++){r+=g[y*WW+x];I[(y+1)*(WW+1)+x+1]=I[y*(WW+1)+x+1]+r}}
+    const hw=Math.max(8,Math.round(bh*.35));
+    const ink0=new Uint8Array(w*h);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const gx=x+x0-X0,gy=y+y0-Y0,a0=Math.max(0,gx-hw),a1=Math.min(WW,gx+hw+1),b0=Math.max(0,gy-hw),b1=Math.min(HH,gy+hw+1);
+      const mean=(I[b1*(WW+1)+a1]-I[b0*(WW+1)+a1]-I[b1*(WW+1)+a0]+I[b0*(WW+1)+a0])/((a1-a0)*(b1-b0));const v=g[gy*WW+gx];
+      if(v<mean*.7&&v<150&&!red[gy*WW+gx])ink0[y*w+x]=1}
+    const pr=(printed||[]).filter(l=>l.conf>=.6&&String(l.text).replace(/\s/g,"").length>=3);
+    for(const l of pr){const a0=Math.max(0,Math.round(l.x-l.w/2-x0)),a1=Math.min(w,Math.round(l.x+l.w/2-x0)),b0=Math.max(0,Math.round(l.y-l.h/2-y0)),b1=Math.min(h,Math.round(l.y+l.h/2-y0));for(let y=b0;y<b1;y++)for(let x=a0;x<a1;x++)ink0[y*w+x]=0}
+    const ink=new Uint8Array(w*h);   // 2px 넓혀서 끊긴 획을 이어요
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(ink0[y*w+x])for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++){const xx=x+dx,yy=y+dy;if(xx>=0&&yy>=0&&xx<w&&yy<h)ink[yy*w+xx]=1}
+    const lab=new Int32Array(w*h),comps=[];let nl=0;
+    for(let i=0;i<w*h;i++){if(!ink[i]||lab[i])continue;nl++;const st=[i];lab[i]=nl;const pts=[];let cx0=w,cy0=h,cx1=0,cy1=0,sx=0;
+      while(st.length){const q=st.pop(),qx=q%w,qy=(q-qx)/w;pts.push(q);sx+=qx;if(qx<cx0)cx0=qx;if(qx>cx1)cx1=qx;if(qy<cy0)cy0=qy;if(qy>cy1)cy1=qy;
+        for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const xx=qx+dx,yy=qy+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const k=yy*w+xx;if(ink[k]&&!lab[k]){lab[k]=nl;st.push(k)}}}
+      const bw=cx1-cx0+1,bhh=cy1-cy0+1;
+      if(Math.max(bw,bhh)<bh*.22)continue;                                   // 점·잡티
+      if(cx0===0&&x0>0&&sx/pts.length<w*.1)continue;                          // 왼쪽 가장자리에 걸린 이름 글씨 조각
+      comps.push({pts,cx0,cy0,cx1,cy1,bw,bh:bhh,mx:x0+sx/pts.length})}
+    let n=0;const out=[];
+    for(const c of comps){
+      if(c.mx<req.split)continue;
+      const my=y0+(c.cy0+c.cy1)/2;if(Math.abs(my-req.y)>bh*.95)continue;   // 다른 줄 글씨
+      if(c.cy0===0||c.cy1===h-1){if(c.bh>bh*1.2)continue}
+      if(c.bw<bh*.35&&c.bh<bh*.8&&my>req.y+bh*.15)continue;                // 쉼표·마침표
+      const gw=c.bw+2,gh=c.bh+2,m=new Uint8Array(gw*gh);for(const q of c.pts){const qx=q%w-c.cx0+1,qy=((q/w)|0)-c.cy0+1;m[qy*gw+qx]=1}
+      const sk=thin(m,gw,gh),thr=Math.max(3,Math.round(bh*.12));
+      const nb=(k)=>{const x=k%gw,y=(k-x)/gw;const r=[];for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;const xx=x+dx,yy=y+dy;if(xx>=0&&yy>=0&&xx<gw&&yy<gh&&sk[yy*gw+xx])r.push(yy*gw+xx)}return r};
+      for(let round=0;round<2;round++){   // 짧은 잔가지 제거
+        const ends=[];for(let k=0;k<sk.length;k++)if(sk[k]&&nb(k).length===1)ends.push(k);
+        for(const e of ends){if(!sk[e])continue;const path=[e];let prev=-1,cur=e,ok=false;
+          while(path.length<=thr){const ns=nb(cur).filter(k=>k!==prev&&!path.includes(k));if(ns.length!==1){ok=ns.length>=2;break}prev=cur;cur=ns[0];if(nb(cur).length>=3){ok=true;break}path.push(cur)}
+          if(ok&&path.length<thr)for(const k of path)sk[k]=0}}
+      let ends=0,L=0;const bp=[];for(let k=0;k<sk.length;k++)if(sk[k]){L++;const q=nb(k).length;if(q===1)ends++;else if(q>=3)bp.push(k)}
+      if(L<bh*.2)continue;
+      // 교차점(획이 만나는 곳) 수: 가까운 갈래 점은 하나로 묶어요. 막대는 획 수 = 교차점 + 1 (一 0, 丅 1, 下 2, 正 4)
+      const used=new Set();let J=0;const R=Math.max(3,Math.round(bh*.12));
+      for(const k of bp){if(used.has(k))continue;J++;const st=[k];used.add(k);while(st.length){const q=st.pop(),qx=q%gw,qy=(q-qx)/gw;for(const o of bp){if(used.has(o))continue;const ox=o%gw,oy=(o-ox)/gw;if(Math.abs(ox-qx)<=R&&Math.abs(oy-qy)<=R){used.add(o);st.push(o)}}}}
+      const dash=c.bw>c.bh*2.5&&c.bh<bh*.5,s=dash?1:J>=4?5:Math.max(1,Math.min(5,ends-1));   // 굵은 선은 뼈대에 가짜 갈래가 생겨서, 교차점이 4개 이상(正)일 때만 교차점으로 판단해요
+      n+=s;out.push({x:c.mx,w:c.bw,h:c.bh,len:L,ends,J,s});
+    }
+    return {n,comps:out};
+  }
+  window.PPOCR=Object.assign(window.PPOCR||{},{strokes});
 })();
