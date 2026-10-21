@@ -95,20 +95,20 @@ summary{cursor:pointer;color:var(--sub);font-size:13px;padding:6px 0}
   <div class="row"><button id="bShoot" class="pri">사진 촬영</button><button id="bPhoto">사진 첨부 (여러 장 가능)</button><button id="bPhotoX" class="sm" hidden>사진 닫기</button></div>
   <input type="file" id="fShoot" accept="image/*" capture="environment" hidden>
   <input type="file" id="fPhoto" accept="image/*" multiple hidden>
-  <div class="row" id="aiOpts">
+  <div class="row" id="aiOpts" hidden>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oTile" checked>꼼꼼히 읽기 (느리지만 작은 바코드도 찾아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oOcr" checked>인쇄된 글자도 읽기 (느림 · 처음 한 번 약 7MB 내려받아요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAI">AI로 정확도 높이기 (손글씨·놓친 스티커 보강 · API 키 필요)</label>
     <label class="scanner" style="margin:0"><input type="checkbox" id="oAuto">경고가 없으면 확인 없이 바로 반영</label>
   </div>
-  <details id="keyBox"><summary>AI 보강 설정 (Claude API 키, 선택)</summary>
+  <details id="keyBox" hidden><summary>AI 보강 설정 (Claude API 키, 선택)</summary>
     <div class="hint">AI는 바코드·글자로 못 읽은 부분(손글씨 숫자, 놓친 스티커)만 보강해요. 키는 이 기기에만 저장돼요. AI를 켜면 사진이 Anthropic 서버로 전송돼요. 환자 정보가 보이는 사진은 올리지 마세요. 사용 한도를 정한 전용 키를 권해요.</div>
     <div class="row"><input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off"><button id="bKeySave" class="sm">저장</button><button id="bKeyTest" class="sm">연결 테스트</button><button id="bKeyDel" class="sm">삭제</button></div>
     <label class="scanner"><input type="checkbox" id="oKeyKeep">이 기기에 계속 저장 (끄면 탭을 닫을 때 지워져요)</label>
     <div class="hint" id="keyState"></div>
   </details>
   <div id="pipe" class="hint" aria-live="polite"></div>
-  <div id="aiStatus" class="hint" role="status">시트 사진을 찍거나 첨부하면 스티커의 바코드를 읽어서 제품명·규격별 개수를 계산해요. AI 연결이나 API 키가 필요 없고, 사진은 이 기기 밖으로 나가지 않아요. 한 번 알려준 제품은 기억해요.</div>
+  <div id="aiStatus" class="hint" role="status"></div>
   <div class="row" id="aiStopRow" hidden><button id="bStop">중지</button></div>
   <div id="res" hidden></div>
   <div id="photoBox" hidden>
