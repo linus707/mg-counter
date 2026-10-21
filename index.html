@@ -509,7 +509,7 @@ function showResult(A){
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
   const unk=A.groups.filter(x=>!x.row),unkN=unk.reduce((t,x)=>t+x.n,0);   // 엑셀에 없는 제품은 집계에서 제외
   const SL=A.groups.filter(x=>x.row).map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).concat(tallyRows().map(r=>({...r,p:r.p+(r.auto?" (손글씨)":" (직접)")}))).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
-  const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div>${unkN?`<div class="hint">엑셀에 없는 제품 ${unk.length}종(${unkN}개)은 집계에서 뺐어요: ${esc(unk.slice(0,6).map(x=>x.product.replace(/^GTIN /,"바코드 ")+(x.spec&&x.spec!=="-"?" "+x.spec:"")).join(", "))}${unk.length>6?" 외":""}. 포함하려면 '자세히 보기'에서 엑셀 행을 고르세요.</div>`:""}<div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button></div>`;
+  const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div>${unkN?`<div class="hint">엑셀에 없는 제품 ${unk.length}종(${unkN}개)은 집계에서 뺐어요: ${esc(unk.slice(0,6).map(x=>x.product.replace(/^GTIN /,"바코드 ")+(x.spec&&x.spec!=="-"?" "+x.spec:"")).join(", "))}${unk.length>6?" 외":""}. 포함하려면 '자세히 보기'에서 엑셀 행을 고르세요.</div>`:""}<div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button> <button id="bCopyC" class="sm">수량 확인 댓글용 복사</button></div>`;
   // 날짜(구간)별 표: 제품·규격 × 구간. 구간이 둘 이상일 때만 보여줘요.
   const SECK=x=>`${x.src||1}|${x.sec||1}`,secs=new Map(),cell={};
   for(const st of (LAST&&LAST.list)||[]){
@@ -546,6 +546,11 @@ function showResult(A){
     S.last={...(S.last||{}),list:LAST.list};save();showResult(analyze(LAST.list,LAST.over,LAST));
   });
   if(secHtml)$("bCopySec").onclick=()=>{const t="제품명\t규격\t"+cols.map(colName).join("\t")+"\n"+secRows.map(r=>`${r.p}\t${r.sp}\t`+cols.map(c=>r.c[c[0]]||"").join("\t")).join("\n");(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요")}catch(e){toast("복사하지 못했어요")}ta.remove()})};
+  $("bCopyC").onclick=()=>{   // 병동 앱 '사용 물품 · 수량 확인 댓글'에 붙여넣는 형식: 물품명·규격·사용 개수 + 판단 근거
+    const labs=[...new Set([...secs.values()].map(v=>v.label).filter(Boolean))],day=labs.length?labs.join(", "):D();
+    const tot=SL.reduce((t,x)=>t+x.n,0),hasHand=SL.some(x=>/\(손글씨\)/.test(x.p)),hasMan=SL.some(x=>/\(직접\)/.test(x.p));
+    const t=`[사용 물품 수량 확인] ${day} · 사진 ${A.photos}장\n`+SL.map(x=>`- ${x.p}${x.sp&&x.sp!=="-"&&!x.p.includes(x.sp)?" · "+x.sp:""} · ${x.n}개`).join("\n")+`\n합계 ${tot}개\n판단 근거: 스티커 인쇄 글자(REF·GTIN·제품명) 자동 인식`+(hasHand?", 손글씨 정(正) 막대 획 수":"")+(hasMan?", 직접 센 개수":"")+" (mg-counter)";
+    copyText(t,"복사했어요. 사용 물품 수량 확인 댓글에 붙여넣으세요")};
   $("bCopyS").onclick=()=>{const t="제품명\t규격\t개수\n"+SL.map(x=>`${x.p}\t${x.sp}\t${x.n}`).join("\n");(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("복사했어요. 엑셀에 붙여넣으세요"),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast("복사했어요. 엑셀에 붙여넣으세요")}catch(e){toast("복사하지 못했어요")}ta.remove()})};
   $("bResX").onclick=()=>{LAST=null;S.last=null;S.tallyAuto={};save();renderTallyHints();$("res").hidden=true;setStatus("합산 결과를 지웠어요. 사진을 다시 올려 주세요.")};
   $("bApply").onclick=()=>applyA(A,i=>Math.max(0,parseInt($("res").querySelector(`input[data-i="${i}"]`).value)||0));
@@ -1289,6 +1294,7 @@ function renderTally(){
 }
 // 손글씨 이름 → 엑셀 행 (엑셀에 그 행이 있을 때만)
 const TROW={"Safety":"celsite port","EQ PCN":"eq pcn drain","EQ cath":"eq drain","EQ DM":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
+function copyText(t,msg){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast(msg),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast(msg)}catch(e){toast("복사하지 못했어요")}ta.remove()})}
 function tallyRows(){   // 결과표에 합칠 행: 엑셀 행 순서에 맞춰 정렬하기 위한 순서값 포함
   const man=(S.tally||[]).filter(t=>t.n>0).map(t=>{const row=rowExact(t.name)||rowExact(TROW[Object.keys(TROW).find(k=>k.toLowerCase()===t.name.toLowerCase())]||""),i=row?S.rows.indexOf(row):-1;return {p:row||t.name,sp:t.spec||"-",n:t.n,o:i<0?1e6-1:i,tally:true}});
   const by={};for(const k in (S.tallyAuto||{}))for(const t of S.tallyAuto[k])if(t.n>0){const r=rowExact(TROW[t.name]||t.name)||t.name;by[r]=(by[r]||0)+t.n}   // 사진에서 자동으로 센 막대 (같은 엑셀 행은 합쳐요: EQ cath + EQ DM = eq drain)
