@@ -729,7 +729,7 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
 }
 // ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
 async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
-  await loadScript("ocr2/ppocr.js?v=11").catch(()=>{});
+  await loadScript("ocr2/ppocr.js?v=13").catch(()=>{});
   if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
   rot=rot||0;
   const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
@@ -1096,7 +1096,7 @@ async function ocrStage(bmp,list,say){
   if(usePP){
     try{
       say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
-      await loadScript("ocr2/ppocr.js?v=11");await PPOCR.load(say);
+      await loadScript("ocr2/ppocr.js?v=13");await PPOCR.load(say);
       const pp=[[0,0,W,H,1920]];
       if($("oTile").checked){   // 겹치는 2x2 조각 (스티커가 작게 찍힌 사진도 글자가 커져서 읽혀요)
         const tw=W*.6,th=H*.6;for(const fy of [0,.4])for(const fx of [0,.4])pp.push([W*fx,H*fy,tw,th,1920]);

@@ -326,7 +326,8 @@
     for(const c of comps){
       if(c.mx<req.split)continue;
       const my=y0+(c.cy0+c.cy1)/2;if(Math.abs(my-req.y)>bh*.95)continue;   // 다른 줄 글씨
-      if(c.cy0===0||c.cy1===h-1){if(c.bh>bh*1.2)continue}
+      if((c.cy0===0&&y0>0)||(c.cy1===h-1&&y1<H)){if(c.bh>bh*1.2)continue}   // 잘린 영역 경계에 걸린 긴 글씨는 다른 줄 (사진 가장자리는 예외)
+      if((y0===0&&c.cy1<bh*.3)||(y1===H&&c.cy0>h-bh*.3))continue;            // 사진 맨 위·아래 테두리 잡티
       if(c.bw<bh*.35&&c.bh<bh*.8&&my>req.y+bh*.15)continue;                // 쉼표·마침표
       const gw=c.bw+2,gh=c.bh+2,m=new Uint8Array(gw*gh);for(const q of c.pts){const qx=q%w-c.cx0+1,qy=((q/w)|0)-c.cy0+1;m[qy*gw+qx]=1}
       const sk=thin(m,gw,gh),thr=Math.max(3,Math.round(bh*.12));
@@ -341,7 +342,7 @@
       // 교차점(획이 만나는 곳) 수: 가까운 갈래 점은 하나로 묶어요. 막대는 획 수 = 교차점 + 1 (一 0, 丅 1, 下 2, 正 4)
       const used=new Set();let J=0;const R=Math.max(3,Math.round(bh*.12));
       for(const k of bp){if(used.has(k))continue;J++;const st=[k];used.add(k);while(st.length){const q=st.pop(),qx=q%gw,qy=(q-qx)/gw;for(const o of bp){if(used.has(o))continue;const ox=o%gw,oy=(o-ox)/gw;if(Math.abs(ox-qx)<=R&&Math.abs(oy-qy)<=R){used.add(o);st.push(o)}}}}
-      const dash=c.bw>c.bh*2.5&&c.bh<bh*.5,s=dash?1:J>=4?5:Math.max(1,Math.min(5,ends-1));   // 굵은 선은 뼈대에 가짜 갈래가 생겨서, 교차점이 4개 이상(正)일 때만 교차점으로 판단해요
+      const dash=c.bw>c.bh*2.5&&c.bh<bh*.5,s=dash?1:J>=4?(ends>=4?5:2):Math.max(1,Math.min(5,ends-1));   // 끝점이 적은데 교차점만 많으면 굵게 뭉친 T(2)   // 굵은 선은 뼈대에 가짜 갈래가 생겨서, 교차점이 4개 이상(正)일 때만 교차점으로 판단해요
       n+=s;out.push({x:c.mx,w:c.bw,h:c.bh,len:L,ends,J,s});
     }
     return {n,comps:out};
