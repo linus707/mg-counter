@@ -232,6 +232,11 @@ const today=()=>{const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.g
 $("date").value=today();
 const D=()=>$("date").value||today();
 const cnt=()=>S.counts[D()]||(S.counts[D()]={});
+// 규격 정렬: 굵기(앞 숫자) → 길이(뒤 숫자) 작은 것부터. 숫자가 없는 규격(코드·손글씨·모름)은 뒤로
+const specNums=s=>(String(s||"").match(/\d+(?:\.\d+)?/g)||[]).map(Number);
+function specCmp(a,b){const A=/^REF\b|^-$|^$/.test(a||"")?[]:specNums(a),B=/^REF\b|^-$|^$/.test(b||"")?[]:specNums(b);
+  if(!A.length||!B.length)return (B.length-A.length)||String(a||"").localeCompare(String(b||""));
+  for(let i=0;i<Math.max(A.length,B.length);i++){const d=(A[i]??-1)-(B[i]??-1);if(d)return d}return 0}
 let XL={};
 
 let hitRow="";
@@ -242,7 +247,7 @@ function render(){
   prods.forEach(r=>{const n=c[r]||0;sum+=n;if(n>0)kinds++});
   $("list").innerHTML=prods.filter(r=>(!q||r.toLowerCase().includes(q))&&(!only||(c[r]||0)>0)).map(r=>{
     const n=c[r]||0,ex=XL[r],has=ex!=null&&ex!=="",diff=has&&n>0&&Number(ex)!==n,sp=(S.specs[D()]||{})[r];
-    return `<div class="item${r===hitRow?" hit":""}${diff?" diff":""}" data-r="${esc(r)}"><div class="nm">${esc(r)}${has?`<small>${diff?"다름 · ":""}엑셀 기존값 ${esc(ex)}</small>`:""}${sp&&n?`<small>규격 ${esc(sp.map(x=>x.spec+" ×"+x.n).join(" · "))}</small>`:""}</div>
+    return `<div class="item${r===hitRow?" hit":""}${diff?" diff":""}" data-r="${esc(r)}"><div class="nm">${esc(r)}${has?`<small>${diff?"다름 · ":""}엑셀 기존값 ${esc(ex)}</small>`:""}${sp&&n?`<small>규격 ${esc(sp.slice().sort((a,b)=>specCmp(a.spec,b.spec)).map(x=>x.spec+" ×"+x.n).join(" · "))}</small>`:""}</div>
     <div class="qty"><button data-a="-" aria-label="${esc(r)} 하나 줄이기">−</button><input type="number" inputmode="numeric" min="0" value="${n||""}" placeholder="0" aria-label="${esc(r)} 개수"><button data-a="+" aria-label="${esc(r)} 하나 늘리기">+</button></div></div>`}).join("")||'<div class="hint" style="padding:12px 0">표시할 제품이 없어요.</div>';
   $("tAll").textContent=sum;$("tKind").textContent=kinds;
   $("mapInfo").textContent=`등록된 바코드 ${Object.keys(S.map).length}개 · 처음 보는 바코드는 한 번만 제품을 알려주면 기억해요.`;
@@ -511,6 +516,10 @@ function applyA(A,valOf){
     const base=(x.specs||[]).filter(y=>y.spec!==UNK),have=base.reduce((t,y)=>t+y.n,0);
     if(v&&base.length)sp[x.row]=base.concat(v>have?[{spec:UNK,n:v-have}]:[]);else delete sp[x.row];
   });
+  // 손글씨 정(正) 막대로 센 것도 마지막에 더해요 (규격 칸에는 '손글씨'로 남겨요). 더한 뒤에는 비워서 두 번 더해지지 않게
+  const hand={};for(const k in (S.tallyAuto||{}))for(const t of S.tallyAuto[k])if(t.n>0){const r=rowExact(TROW[t.name]||t.name);if(r)hand[r]=(hand[r]||0)+t.n}
+  for(const r in hand){const c0=cnt()[r]||0;setCount(r,c0+hand[r]);sp[r]=(sp[r]&&sp[r].length?sp[r]:c0?[{spec:UNK,n:c0}]:[]).concat([{spec:"손글씨",n:hand[r]}])}
+  S.tallyAuto={};renderTallyHints();
   save();toast(`${D()} 개수 ${A.results.length}개 제품을 반영했어요`);LAST=null;S.last=null;save();$("res").hidden=true;$("onlyUsed").checked=true;render();
 }
 const specTxt=a=>(a&&a.length)?a.map(x=>`${x.spec} ×${x.n}`).join(" · "):"-";
@@ -519,7 +528,7 @@ function showResult(A){
   const g=A.groups.map(x=>`<tr><td>${esc(x.product)}</td><td>${esc(x.spec)}</td><td class="n">${x.n}</td><td class="n">${x.nums.length?esc([...new Set(x.nums)].join(", ")):"-"}</td><td>${x.row?esc(x.row):`<select data-key="${esc(x.key)}"><option value="">선택…</option>${opts}</select><input data-spec="${esc(x.key)}" placeholder="규격(선택)" aria-label="규격" style="width:110px;margin-top:4px">`}</td></tr>`).join("");
   const r=A.results.map((x,i)=>{const ex=XL[x.row],has=ex!=null&&ex!=="";return `<tr><td>${esc(x.row)}</td><td class="n"><input type="number" min="0" value="${x.n}" data-i="${i}" aria-label="${esc(x.row)} 개수"></td><td>${esc(specTxt(x.specs))}</td><td>${esc(x.basis)}</td><td class="n">${has?esc(ex)+(Number(ex)===x.n?' <span class="ok">일치</span>':' <span class="diffm">다름</span>'):"-"}</td></tr>`}).join("");
   const unk=A.groups.filter(x=>!x.row),unkN=unk.reduce((t,x)=>t+x.n,0);   // 엑셀에 없는 제품은 집계에서 제외
-  const SL=A.groups.filter(x=>x.row).map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).concat(tallyRows().map(r=>({...r,p:r.p+(r.auto?" (손글씨)":" (직접)")}))).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true})); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
+  const SL=A.groups.filter(x=>x.row).map(x=>({p:/^GTIN \d+$/.test(x.product)?"미등록 제품 ("+x.product.replace("GTIN ","")+")":x.product,sp:x.spec&&x.spec!=="-"?x.spec:"-",n:x.n,o:(()=>{const i=x.row?S.rows.indexOf(x.row):-1;return i<0?1e6:i})()})).concat(tallyRows().map(r=>({...r,p:r.p+(r.auto?" (손글씨)":" (직접)")}))).sort((a,b)=>(a.tally?1:0)-(b.tally?1:0)||a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||specCmp(a.sp,b.sp)); // 엑셀 행 순서대로, 행을 모르는 제품은 맨 아래
   const simple=`<div class="resh">제품명 · 규격 · 개수</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th><th class="n">개수</th></tr></thead><tbody>${SL.map(x=>`<tr><td>${esc(x.p)}</td><td>${esc(x.sp)}</td><td class="n">${x.n}</td></tr>`).join("")}<tr><td colspan="2"><b>합계</b></td><td class="n"><b>${SL.reduce((t,x)=>t+x.n,0)}</b></td></tr></tbody></table></div>${unkN?`<div class="hint">엑셀에 없는 제품 ${unk.length}종(${unkN}개)은 집계에서 뺐어요: ${esc(unk.slice(0,6).map(x=>x.product.replace(/^GTIN /,"바코드 ")+(x.spec&&x.spec!=="-"?" "+x.spec:"")).join(", "))}${unk.length>6?" 외":""}. 포함하려면 '자세히 보기'에서 엑셀 행을 고르세요.</div>`:""}<div class="row"><button id="bCopyS" class="sm">표 복사 (엑셀에 붙여넣기)</button> <button id="bCopyC" class="sm">수량 확인 댓글용 복사</button> <button id="bColXl" class="sm">엑셀 열 복사 (행 순서대로)</button> <button id="bFillXl" class="sm pri">월사용량 엑셀에 자동 기입</button></div>`;
   // 날짜(구간)별 표: 제품·규격 × 구간. 구간이 둘 이상일 때만 보여줘요.
   const SECK=x=>`${x.src||1}|${x.sec||1}`,secs=new Map(),cell={};
@@ -533,7 +542,7 @@ function showResult(A){
   const colName=c=>(c[1].label?c[1].label:`${multiPhoto?"사진"+c[1].src+" ":""}${c[1].sec}번째 구간`);
   let secHtml="",secRows=[];
   if(cols.length>1){
-    secRows=Object.values(cell).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||a.sp.localeCompare(b.sp,undefined,{numeric:true}));
+    secRows=Object.values(cell).sort((a,b)=>a.o-b.o||a.p.toLowerCase().localeCompare(b.p.toLowerCase())||specCmp(a.sp,b.sp));
     secHtml=`<div class="resh">날짜(구간)별 개수</div><div class="hint">시트의 가로 구분선(또는 날짜 글씨)으로 나눴어요. 위에서부터 차례로 하루씩이에요. 맨 위 칸의 날짜가 틀리면 직접 고치세요(손글씨라 0과 6이 헷갈려요).</div><div class="tblwrap"><table class="tbl"><thead><tr><th>제품명</th><th>규격</th>${cols.map(c=>`<th class="n"><input class="secin" data-ck="${esc(c[0])}" value="${esc(c[1].label)}" placeholder="${esc(colName(c))}" aria-label="날짜 열 이름" size="6"></th>`).join("")}</tr></thead><tbody>${secRows.map(r=>`<tr><td>${esc(r.p)}</td><td>${esc(r.sp)}</td>${cols.map(c=>`<td class="n">${r.c[c[0]]||""}</td>`).join("")}</tr>`).join("")}<tr><td colspan="2"><b>합계</b></td>${cols.map(c=>`<td class="n"><b>${secRows.reduce((t,r)=>t+(r.c[c[0]]||0),0)}</b></td>`).join("")}</tr></tbody></table></div><div class="row"><button id="bCopySec" class="sm">구간별 표 복사 (엑셀에 붙여넣기)</button></div>`;
   }
   let eq=0,df=0,nx=0;A.results.forEach(x=>{const ex=XL[x.row];if(ex==null||ex==="")nx++;else if(Number(ex)===x.n)eq++;else df++});
@@ -1374,7 +1383,7 @@ const _render=render;render=function(){_render();covRender()};
 // ---------- 규격별 내역 복사 ----------
 $("bSpecCopy").onclick=async()=>{
   const c=cnt(),sp=S.specs[D()]||{},lines=["제품\t규격\t개수"];
-  for(const r of S.rows){if(!r||!c[r])continue;if(sp[r]&&sp[r].length)sp[r].forEach(x=>lines.push(`${r}\t${x.spec}\t${x.n}`));else lines.push(`${r}\t-\t${c[r]}`)}
+  for(const r of S.rows){if(!r||!c[r])continue;if(sp[r]&&sp[r].length)sp[r].slice().sort((a,b)=>specCmp(a.spec,b.spec)).forEach(x=>lines.push(`${r}\t${x.spec}\t${x.n}`));else lines.push(`${r}\t-\t${c[r]}`)}
   if(lines.length===1){toast("복사할 개수가 없어요");return}
   const t=lines.join("\n");
   try{await navigator.clipboard.writeText(t);toast("제품·규격·개수를 복사했어요")}catch(e){$("copyArea").value=t;$("dlgCopy").showModal();$("copyArea").select()}
