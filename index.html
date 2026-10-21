@@ -363,7 +363,7 @@ async function runBatch(files){
 let ctl=null,LAST=null;
 const setStatus=t=>{$("aiStatus").textContent=t};
 const SERIES=r=>r==="mustang(long)150-200"?"mustang":r;
-const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","YR","yoroi"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
+const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","YR","yoroi"],["p","SF0","smart stent"],["p","SF1","smart stent"],["e","8808060","chemo"],["e","8806060","chemo"],["e","1608062","chemo"],["e","0600650","Hickman(12.5fr)"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
 ["k","absolute pro","absolute pro"],["k","in.pact","inpact"],["k","conquest","conquest"],["k","atlas gold","atlas"],["k","athletis","athletis"],["k","mustang","mustang"],["k","jade","jade"],["k","saber","saber"],["k","cleaner","cleaner"],["k","sf 2-lumen","python picc"],["k","2-lumen","python picc"],["k","hemodialysis","perm"],["k","long perm","perm"],["k","long-term","perm"]];
 const pkOf=s=>`${(s.maker||"").toLowerCase()}|${(s.product||"").toLowerCase()}`;
 function classify(s,over){
@@ -582,7 +582,7 @@ const SEED_G={
 "08717648114854":{maker:"Abbott",product:"Absolute Pro OTW",spec:"8.0mm x 60mm 80cm",row:"absolute pro"},
 "00763000136826":{maker:"Medtronic",product:"IN.PACT Admiral",spec:"REF SBI07008008S",row:"inpact"},
 "06934955907197":{maker:"",product:"JADE OTW .035",spec:"7.0mm x 180mm 75cm",row:"jade"},
-"00801741026430":{maker:"BD",product:"PowerPort ClearVUE isp",spec:"REF 1608062",row:"chemo"},
+"00801741098970":{maker:"BD",product:"PowerPort isp M.R.I.",spec:"REF 8808060",row:"chemo"},"00801741051975":{maker:"BD",product:"Hickman 12.5F Triple-Lumen CVC",spec:"REF 0600650",row:"Hickman(12.5fr)"},"00801741026430":{maker:"BD",product:"PowerPort ClearVUE isp",spec:"REF 1608062",row:"chemo"},
 "00801741139918":{maker:"BD",product:"PowerPICC Catheter",spec:"REF 8275335",row:"picc(DL)"},
 "00801741060588":{maker:"BD",product:"Conquest 40",spec:"8mm x 100mm",row:"conquest"},
 "00801741060663":{maker:"BD",product:"Conquest 40",spec:"12mm x 40mm",row:"conquest"},
@@ -796,14 +796,20 @@ async function assignSections(bmp,lines,stickers){
   // 선이 x 위치에서 어느 높이에 있는지 (꺾인 선은 가장 가까운 점의 높이)
   const lineY=(l,x)=>{if(l.bent&&l.prof.length){let b=l.prof[0],d=1e9;for(const p of l.prof){const dd=Math.abs(p[0]-x);if(dd<d){d=dd;b=p}}return b[1]}return l.ya+(l.yb-l.ya)*Math.min(1,Math.max(0,(x-l.x0)/Math.max(1,l.x1-l.x0)))};
   const above=(x,y)=>seps.filter(l=>x>=l.x0-.03*W&&x<=l.x1+.03*W&&lineY(l,x)<y-8).length;
-  const labels={},heads=[];
+  const labels={},heads=[],labelsSeps=seps.length;
   for(const l of lines.slice().sort((a,b)=>a.y-b.y)){
     const t=String(l.text||"").replace(/\s+/g,"");
-    const m=/^\D{0,3}(\d{1,2})[\/.](\d{1,2})(?:\D{0,8}?\d?[RrＲ])?\D{0,8}$/.exec(t);   // 10/20(화)1R 처럼 뒤에 방 번호가 붙어도 날짜로 봐요
+    let m=/^\D{0,3}(\d{1,2})[\/.](\d[\dOo]?)(?:\D{0,8}?\d?[RrＲ])?\D{0,8}$/.exec(t);   // 10/20(화)1R 처럼 뒤에 방 번호가 붙어도 날짜로 봐요
+    if(!m){const f=/^\D{0,3}(1[0-2]|[1-9])1([0-3]\d)(?:[(（\s]|$)/.exec(t);if(f)m=[f[0],f[1],f[2]]}   // 10/20의 '/'를 1로 읽은 경우(10120)
+    if(m)m[2]=m[2].replace(/[Oo]/g,"0");   // 10/2O 처럼 0을 O로 읽은 경우
     if(!m||/mm/i.test(t)||+m[1]<1||+m[1]>12||+m[2]<1||+m[2]>31)continue;
     const lab=`${+m[1]}/${+m[2]}`;heads.push({y:l.y,x:l.x,lab});
     const k=above(l.x,l.y);if(!labels[k])labels[k]=lab;
   }
+  // 가짜 구분선 거르기: 사진 맨 위·아래 가장자리 선(겹친 종이 테두리)은 빼고, 날짜 글씨를 읽었으면 그 아래에 날짜가 하나도 없는 평평한 선(스티커 테두리, 뒷장 표 선)도 빼요. 계단처럼 꺾인 선은 남겨요
+  for(let i=seps.length-1;i>=0;i--){const l=seps[i],top=Math.min(l.ya,l.yb),bot=Math.max(l.ya,l.yb);
+    if(bot<.03*H||top>.97*H||(heads.length&&!heads.some(h=>h.y>top+5)&&bot-top<.05*H))seps.splice(i,1)}
+  if(seps.length!==labelsSeps){for(const k in labels)delete labels[k];for(const h of heads){const k=above(h.x,h.y);if(!labels[k])labels[k]=h.lab}}
   // 구분선이 없거나 꺾인 선이라 못 찾았을 때는, 날짜 글씨(예: 10/19, 10/20)가 쓰인 높이로 위에서부터 나눠요
   const hd=[];for(const x of heads)if(!hd.some(d=>d.lab===x.lab))hd.push(x);
   let n=0;
@@ -836,6 +842,12 @@ function attachNumbers(stickers,nums,W,H){
 }
 // ---------- 글자만으로 인식 (바코드 없이) ----------
 // 1) 스티커에 인쇄된 제품코드(GTIN) 숫자  2) REF 번호  3) 제품 이름 + 규격 글자  4) 엑셀 제품 이름 — 순서로 찾고, 같은 스티커는 한 번만 세요.
+const LOOKALIKE={"0":"86","1":"7","3":"8","5":"6","6":"85","7":"1","8":"6035"};
+function gtinFix(g){   // 한 글자만 비슷한 숫자로 바꿨을 때 제품표에 있는 GTIN이 딱 하나면 그걸로 봐요
+  const hit=new Set();
+  for(let i=0;i<g.length;i++)for(const c of LOOKALIKE[g[i]]||""){const t=g.slice(0,i)+c+g.slice(i+1);if(gs1ok(t)&&GC()[t])hit.add(t)}
+  return hit.size===1?[...hit][0]:"";
+}
 function stickersFromTextGtin(lines){
   const out=[];
   for(const l of lines){
@@ -844,8 +856,8 @@ function stickersFromTextGtin(lines){
     const re1=/\(?01\)?(\d{14})/g;while((m=re1.exec(t)))cands.add(m[1]);
     const re2=/GTIN(\d{14})/gi;while((m=re2.exec(t)))cands.add(m[1]);
     const re3=/(?<!\d)(0\d{13})(?!\d)/g;while((m=re3.exec(t)))cands.add(m[1]);
-    for(const g of cands){
-      if(!gs1ok(g)||!GC()[g])continue;                                   // 체크숫자가 맞고 제품표에 있는 것만 인정해요
+    for(const g0 of cands){
+      const g=gs1ok(g0)&&GC()[g0]?g0:gtinFix(g0);if(!g)continue;   // 체크숫자가 맞고 제품표에 있는 것만 인정해요 (6↔8 같은 한 글자 오독은 바로잡아요)                                   // 체크숫자가 맞고 제품표에 있는 것만 인정해요
       const st=stickerFromCode("(01)"+g);if(!st)continue;
       st.x=l.x;st.y=l.y;st.fromText=true;st.conf="high";
       if(!out.some(o=>o.gtin===g&&Math.hypot(o.x-st.x,o.y-st.y)<35))out.push(st);
@@ -907,7 +919,8 @@ function ocrNameStickers(lines,W,H){
   const keys=[...nameKeys().entries()].sort((a,b)=>b[0].length-a[0].length),out=[],R=.07*Math.max(W,H);
   for(const l of lines){
     const t=" "+l.text.toLowerCase().replace(/[™®]/g,"").replace(/\s+/g," ")+" ";
-    for(const [k,row] of keys){
+    for(const [k,row0] of keys){
+      const row=/^hickman/i.test(row0)&&/12[.,]\s?5/.test(t)&&S.rows.includes("Hickman(12.5fr)")?"Hickman(12.5fr)":row0;   // Hickman은 굵기(9.5/12.5F)로 행이 나뉘어요
       if(t.includes(k)&&(k.length>=6||/[^a-z]/.test(t[t.indexOf(k)-1]||" "))){
         if(!out.some(o=>o.nameRow===row&&Math.hypot(o.x-l.x,o.y-l.y)<R))out.push({maker:"",product:row,spec:"",ref:"",lot:"",exp:"",length_mm:null,gtin:"",key:`name|${row}|${Math.round(l.x)}|${Math.round(l.y)}`,written:[],circled:null,row,conf:"low",x:l.x,y:l.y,ocr:true,byName:true,nameRow:row});
         break;   // 한 줄에서는 가장 긴(가장 구체적인) 이름 하나만
@@ -925,7 +938,7 @@ function nearbySpec(lines,o,M){
     if(dy<-.015*M||dy>.09*M||dx>.2*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
   if(!best)return "";const L=/cm/i.test(best[3])?+best[2]*10:+best[2];return `${+best[1]}mm x ${L}mm`;
 }
-const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"]];
+const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800(?:4006|6030)N?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"],[/\bSF\d{5}MV\b/g,"smartflex"],[/\b(?:880[68]060|1608062)\b/g,"powerport"],[/\b0600650\b/g,"hickman"]];
 // Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
 function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
@@ -943,6 +956,9 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="saber"){ref=ref.replace(/N?$/,"N");maker="Cordis";product="SABER .035";spec=`REF ${ref}`}
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="yoroi"){const m=ref.match(/YR(\d{2})-?(\d{2})(\d{2})/);maker="KANEKA";product="YOROI HC";spec=m?`${(+m[2]/10).toFixed(1)}mm x ${+m[3]}mm`:`REF ${ref}`;if(m)ref=`YR${m[1]}-${m[2]}${m[3]}HC`}   // 예) YR75-7060HC = 7.0mm x 60mm
+  else if(kind==="smartflex"){maker="Cordis";product="SMART Flex";spec=ref}   // 예) SF08150MV = 8mm x 150mm
+  else if(kind==="powerport"){ref=ref.replace(/^8806060$/,"8808060");maker="BD";product="PowerPort";spec=`REF ${ref}`}
+  else if(kind==="hickman"){maker="BD";product="Hickman 12.5F Triple-Lumen CVC";spec=`REF ${ref}`}
   else if(kind==="cleaner"){maker="Argon";product="CLEANER 15";spec=`REF ${ref}`}
   else if(kind==="powerpicc"){maker="BD";product="PowerPICC Catheter";spec=`REF ${ref}`}
   else if(kind==="celsite"){maker="B.Braun";product="Celsite Safety SST605F";spec=`REF ${ref}`}
@@ -1137,7 +1153,7 @@ function leftoverName(covered,nameList,W,H){
   for(const c of covered){const rc=classify(c,null);let bi=-1,bd=1e9;
     free.forEach((o,i)=>{const same=o.row===rc,alias=!same&&(NAME_COVER[o.row]||[]).includes(rc);
       if(!same&&!alias)return;
-      if(alias&&Math.abs(o.y-c.y)>.02*Math.max(W,H))return;   // 위아래로 붙은 다른 띠 라벨을 같은 라벨로 착각하지 않게
+      if(alias&&Math.abs(o.y-c.y)>.025*Math.max(W,H))return;   // 위아래로 붙은 다른 띠 라벨을 같은 라벨로 착각하지 않게
       const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<(same&&WIDE_ROWS.has(rc)?.16:.12)*M&&d<bd){bd=d;bi=i}});
     if(bi>=0)free.splice(bi,1)}
   return free;
