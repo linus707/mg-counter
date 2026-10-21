@@ -40,8 +40,8 @@
     const TH=.3;
     for(let i=0;i<n;i++){
       if(seen[i]||P[i]<=TH)continue;
-      let sp=0,cnt=0,sum=0,x0=w,y0=h,x1=0,y1=0;stack[sp++]=i;seen[i]=1;
-      while(sp){const q=stack[--sp],qx=q%w,qy=(q-qx)/w;cnt++;sum+=P[q];
+      let sp=0,cnt=0,sum=0,x0=w,y0=h,x1=0,y1=0,mx=0,my=0,mxx=0,myy=0,mxy=0;stack[sp++]=i;seen[i]=1;
+      while(sp){const q=stack[--sp],qx=q%w,qy=(q-qx)/w;cnt++;sum+=P[q];mx+=qx;my+=qy;mxx+=qx*qx;myy+=qy*qy;mxy+=qx*qy;
         if(qx<x0)x0=qx;if(qx>x1)x1=qx;if(qy<y0)y0=qy;if(qy>y1)y1=qy;
         if(qx>0&&!seen[q-1]&&P[q-1]>TH){seen[q-1]=1;stack[sp++]=q-1}
         if(qx<w-1&&!seen[q+1]&&P[q+1]>TH){seen[q+1]=1;stack[sp++]=q+1}
@@ -51,7 +51,14 @@
       if(cnt<12||Math.min(bw,bh)<3||sum/cnt<.55)continue;
       const dist=(bw*bh)*1.6/(2*(bw+bh)),k=1/s;                    // DB 후처리의 unclip
       const px=Math.min(bh*.35,dist);   // 줄 끝 글자가 잘리지 않도록 가로로 조금 더 넓혀요
-      boxes.push({x0:Math.max(0,(x0-dist-px)*k),y0:Math.max(0,(y0-dist)*k),x1:Math.min(W,(x1+dist+px)*k),y1:Math.min(H,(y1+dist)*k)});
+      const box={x0:Math.max(0,(x0-dist-px)*k),y0:Math.max(0,(y0-dist)*k),x1:Math.min(W,(x1+dist+px)*k),y1:Math.min(H,(y1+dist)*k)};
+      // 비스듬한 글줄: 픽셀 분포의 기울기(2차 모멘트)로 각도와 길이·두께를 구해, 읽을 때 똑바로 돌려서 잘라요
+      const ax=mx/cnt,ay=my/cnt,cxx=mxx/cnt-ax*ax,cyy=myy/cnt-ay*ay,cxy=mxy/cnt-ax*ay;
+      const ang=.5*Math.atan2(2*cxy,cxx-cyy),tr=(cxx+cyy)/2,dd=Math.sqrt(Math.max(0,(cxx-cyy)*(cxx-cyy)/4+cxy*cxy));
+      const L=Math.sqrt(12*(tr+dd)),T=Math.sqrt(12*Math.max(0,tr-dd));
+      if(Math.abs(ang)>.05&&Math.abs(ang)<.7&&T>=2&&L>T*2.5){const d2=L*T*1.6/(2*(L+T));
+        box.ang=ang;box.cx=ax*k;box.cy=ay*k;box.L=(L+2*d2+2*Math.min(T*.35,d2))*k;box.T=(T+2*d2)*k}
+      boxes.push(box);
     }
     return boxes;
   }
@@ -62,9 +69,15 @@
     const c=document.createElement("canvas"),H=48;
     const sw=vert?bh:bw,sh=vert?bw:bh,W=Math.min(1600,Math.max(24,Math.ceil(H*sw/sh)));
     c.width=W;c.height=H;const x=c.getContext("2d",{willReadFrequently:true});x.fillStyle="#fff";x.fillRect(0,0,W,H);
+    if(b.ang!=null){const Wr=Math.min(1600,Math.max(24,Math.ceil(H*b.L/b.T)));c.width=Wr;x.fillStyle="#fff";x.fillRect(0,0,Wr,H);
+      x.translate(Wr/2,H/2);x.scale(Wr/b.L,H/b.T);x.rotate(-b.ang);x.translate(-b.cx,-b.cy);x.drawImage(canvas,0,0);x.setTransform(1,0,0,1,0,0);
+      const inp=toBGR(c,Wr,H,null,null,true);return await runRec(inp,Wr,H)}
     if(vert){x.translate(0,H);x.rotate(-Math.PI/2);x.drawImage(canvas,b.x0,b.y0,bw,bh,0,0,H,W)}
     else x.drawImage(canvas,b.x0,b.y0,bw,bh,0,0,W,H);
     const inp=toBGR(c,W,H,null,null,true);
+    return await runRec(inp,W,H);
+  }
+  async function runRec(inp,W,H){
     const out=await rec.run({[rec.inputNames[0]]:new ort.Tensor("float32",inp,[1,3,H,W])});
     const o=out[rec.outputNames[0]],T=o.dims[1],C=o.dims[2],D=o.data;
     let last=-1,txt="",cs=0,cn=0;

@@ -729,7 +729,7 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
 }
 // ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
 async function ppPass(bmp,sx,sy,sw,sh,longSide,rot){
-  await loadScript("ocr2/ppocr.js").catch(()=>{});
+  await loadScript("ocr2/ppocr.js?v=2").catch(()=>{});
   if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
   rot=rot||0;
   const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
@@ -799,7 +799,7 @@ async function assignSections(bmp,lines,stickers){
   const labels={},heads=[],labelsSeps=seps.length;
   for(const l of lines.slice().sort((a,b)=>a.y-b.y)){
     const t=String(l.text||"").replace(/\s+/g,"");
-    let m=/^\D{0,3}(\d{1,2})[\/.](\d[\dOo]?)(?:\D{0,8}?\d?[RrＲ])?\D{0,8}$/.exec(t);   // 10/20(화)1R 처럼 뒤에 방 번호가 붙어도 날짜로 봐요
+    let m=/^\D{0,3}(\d{1,2})[\/.、，,](\d[\dOo]?)(?:\D{0,8}?\d?[RrＲ])?\D{0,8}$/.exec(t);   // 10/20(화)1R 처럼 뒤에 방 번호가 붙어도 날짜로 봐요
     if(!m){const f=/^\D{0,3}(1[0-2]|[1-9])1([0-3]\d)(?:[(（\s]|$)/.exec(t);if(f)m=[f[0],f[1],f[2]]}   // 10/20의 '/'를 1로 읽은 경우(10120)
     if(m)m[2]=m[2].replace(/[Oo]/g,"0");   // 10/2O 처럼 0을 O로 읽은 경우
     if(!m||/mm/i.test(t)||+m[1]<1||+m[1]>12||+m[2]<1||+m[2]>31)continue;
@@ -1096,7 +1096,7 @@ async function ocrStage(bmp,list,say){
   if(usePP){
     try{
       say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
-      await loadScript("ocr2/ppocr.js");await PPOCR.load(say);
+      await loadScript("ocr2/ppocr.js?v=2");await PPOCR.load(say);
       const pp=[[0,0,W,H,1920]];
       if($("oTile").checked){   // 겹치는 2x2 조각 (스티커가 작게 찍힌 사진도 글자가 커져서 읽혀요)
         const tw=W*.6,th=H*.6;for(const fy of [0,.4])for(const fx of [0,.4])pp.push([W*fx,H*fy,tw,th,1920]);
