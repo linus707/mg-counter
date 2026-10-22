@@ -70,8 +70,9 @@
     const c=document.createElement("canvas"),H=48;
     const sw=vert?bh:bw,sh=vert?bw:bh,W=Math.min(1600,Math.max(24,Math.ceil(H*sw/sh)));
     c.width=W;c.height=H;const x=c.getContext("2d",{willReadFrequently:true});x.fillStyle="#fff";x.fillRect(0,0,W,H);
+    if(b.flip&&b.ang==null){x.translate(W,H);x.rotate(Math.PI);x.drawImage(canvas,b.x0,b.y0,bw,bh,0,0,W,H);x.setTransform(1,0,0,1,0,0);return await runRec(toBGR(c,W,H,null,null,true),W,H)}   // 거꾸로 붙은 스티커
     if(b.ang!=null){const Wr=Math.min(1600,Math.max(24,Math.ceil(H*b.L/b.T)));c.width=Wr;x.fillStyle="#fff";x.fillRect(0,0,Wr,H);
-      x.translate(Wr/2,H/2);x.scale(Wr/b.L,H/b.T);x.rotate(-b.ang);x.translate(-b.cx,-b.cy);x.drawImage(canvas,0,0);x.setTransform(1,0,0,1,0,0);
+      x.translate(Wr/2,H/2);if(b.flip)x.rotate(Math.PI);x.scale(Wr/b.L,H/b.T);x.rotate(-b.ang);x.translate(-b.cx,-b.cy);x.drawImage(canvas,0,0);x.setTransform(1,0,0,1,0,0);
       const inp=toBGR(c,Wr,H,null,null,true);return await runRec(inp,Wr,H)}
     if(vert){x.translate(0,H);x.rotate(-Math.PI/2);x.drawImage(canvas,b.x0,b.y0,bw,bh,0,0,H,W)}
     else x.drawImage(canvas,b.x0,b.y0,bw,bh,0,0,W,H);
@@ -95,7 +96,8 @@
     for(const b of boxes){
       const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2;if(skip.some(k=>cx>k.x0&&cx<k.x1&&cy>k.y0&&cy<k.y1&&b.x1-b.x0<(k.x1-k.x0)*1.4))continue;   // 이미 확실히 읽은 줄은 다시 읽지 않아요 (속도)
       let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
-      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null,px:b.y1-b.y0>(b.x1-b.x0)*1.6?null:b.ang!=null?r.pos.map(f=>b.cx+(f-.5)*b.L*Math.cos(b.ang)):r.pos.map(f=>b.x0+f*(b.x1-b.x0))});   // px: 글자별 가로 위치 (기울어진 줄도)
+      if(opt.flip&&r&&r.conf<.75&&(b.ang!=null?b.L>b.T*2.5:b.x1-b.x0>(b.y1-b.y0)*2.5)){try{const r2=await readLine(canvas,{...b,flip:true});if(r2&&r2.conf>r.conf+.08){r=r2;r.pos=null}}catch(e){}}   // 흐리게 읽힌 가로줄은 뒤집어서도 읽어 봐요
+      if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null,px:!r.pos||b.y1-b.y0>(b.x1-b.x0)*1.6?null:b.ang!=null?r.pos.map(f=>b.cx+(f-.5)*b.L*Math.cos(b.ang)):r.pos.map(f=>b.x0+f*(b.x1-b.x0))});   // px: 글자별 가로 위치 (기울어진 줄도)
     }
     return lines;
   }
@@ -375,7 +377,7 @@
       const used=new Set();let J=0;const R=Math.max(3,Math.round(bh*.12));
       for(const k of bp){if(used.has(k))continue;J++;const st=[k];used.add(k);while(st.length){const q=st.pop(),qx=q%gw,qy=(q-qx)/gw;for(const o of bp){if(used.has(o))continue;const ox=o%gw,oy=(o-ox)/gw;if(Math.abs(ox-qx)<=R&&Math.abs(oy-qy)<=R){used.add(o);st.push(o)}}}}
       const dash=c.bw>c.bh*2.5&&c.bh<bh*.5,s=dash?1:J>=4?(ends>=4?5:2):Math.max(1,Math.min(5,ends-1));   // 끝점이 적은데 교차점만 많으면 굵게 뭉친 T(2)   // 굵은 선은 뼈대에 가짜 갈래가 생겨서, 교차점이 4개 이상(正)일 때만 교차점으로 판단해요
-      n+=s;out.push({x:c.mx,w:c.bw,h:c.bh,len:L,ends,J,s});
+      n+=s;out.push({x:c.mx,w:c.bw,h:c.bh,len:L,ends,J,s,bx0:x0+c.cx0,by0:y0+c.cy0,bx1:x0+c.cx1+1,by1:y0+c.cy1+1});
     }
     return {n,comps:out};
   }
