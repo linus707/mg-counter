@@ -380,7 +380,7 @@ async function runBatch(files){
 let ctl=null,LAST=null;
 const setStatus=t=>{$("aiStatus").textContent=t};
 const SERIES=r=>r==="mustang(long)150-200"?"mustang":r;
-const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","YR","yoroi"],["p","4800","saber"],["p","4703","saber"],["p","9090475","Lutonix"],["p","A35HPV","Fortrex"],["p","SF0","smart stent"],["p","SF1","smart stent"],["e","8808060","chemo"],["e","8806060","chemo"],["e","1608062","chemo"],["e","0600650","Hickman(12.5fr)"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
+const CAT=[["p","H7493934","athletis"],["p","H7493917","mustang"],["p","CQF","conquest"],["p","ATG","atlas"],["p","1011917","absolute pro"],["p","8275335","picc(DL)"],["p","4437803","celsite port"],["p","639319","perm"],["p","639323","perm"],["p","GPNCN","genoss"],["p","YR","yoroi"],["p","BGP","python picc"],["p","4800","saber"],["p","4703","saber"],["p","9090475","Lutonix"],["p","A35HPV","Fortrex"],["p","SF0","smart stent"],["p","SF1","smart stent"],["e","8808060","chemo"],["e","8806060","chemo"],["e","1608062","chemo"],["e","0600650","Hickman(12.5fr)"],["p","SBI","inpact"],["p","48006030","saber"],["e","607018015","jade"],["e","700015","cleaner"],
 ["k","absolute pro","absolute pro"],["k","in.pact","inpact"],["k","conquest","conquest"],["k","atlas gold","atlas"],["k","athletis","athletis"],["k","mustang","mustang"],["k","jade","jade"],["k","saber","saber"],["k","cleaner","cleaner"],["k","sf 2-lumen","python picc"],["k","2-lumen","python picc"],["k","hemodialysis","perm"],["k","long perm","perm"],["k","long-term","perm"]];
 const pkOf=s=>`${(s.maker||"").toLowerCase()}|${(s.product||"").toLowerCase()}`;
 function classify(s,over){
@@ -974,7 +974,7 @@ function nearbySpec(lines,o,M){   // 같은 스티커 안(이름 바로 아래 �
     if(dy<-.015*M||dy>.06*M||dx>.1*M)continue;const d=Math.hypot(dx,dy);if(d<bd){bd=d;best=m}}
   if(!best)return "";const L=/cm/i.test(best[3])?+best[2]*10:+best[2];return `${+best[1]}mm x ${L}mm`;
 }
-const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800\d{4}N?|4703\d{4}M?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"],[/\bSF\d{5}MV\b/g,"smartflex"],[/\b(?:880[68]060|1608062)\b/g,"powerport"],[/A3[5S]HPV\d{8}/g,"fortrex"],[/9090475\d{6}/g,"lutonix"],[/\b0600650\b/g,"hickman"]];
+const OCR_RX=[[/YR\d{2}-?\d{4}(?:HC)?/g,"yoroi"],[/H7493(?:917|934)[0-9OoIlSB]{7}/g,"boston"],[/CQF\d{4,5}/g,"cqf"],[/ATG\d{5}/g,"atg"],[/1011917-?\d{3}/g,"abbott"],[/GPNCN-?\d{2}-?\d{3}-?\d{3}/g,"genoss"],[/SBI\d{5}[0-9A-Z]{3,4}/g,"sbi"],[/4800\d{4}N?|4703\d{4}M?/g,"saber"],[/\b607018015\b/g,"jade"],[/\b700015\b/g,"cleaner"],[/\b8275335\b/g,"powerpicc"],[/\b4437803\b/g,"celsite"],[/\b639(?:319|323)\d\b/g,"glidepath"],[/\bSF\d{5}MV\b/g,"smartflex"],[/\b(?:880[68]060|1608062)\b/g,"powerport"],[/A3[5S]HPV\d{8}/g,"fortrex"],[/BGP-?5D[I1l]R/g,"bgp"],[/9090475\d{6}/g,"lutonix"],[/\b0600650\b/g,"hickman"]];
 // Conquest 40 REF 규칙: CQF75 + 지름 + 길이(cm). 예) CQF75810=8mm x 100mm, CQF75124=12mm x 40mm, CQF7586=8mm x 60mm
 function cqfSpec(ref){const m=/^CQF75(\d{2,3})$/.exec(ref||"");if(!m)return "";const r=m[1];let d,l;if(r.length===3){if(/^(10|12)/.test(r)){d=r.slice(0,2);l=r[2]}else{d=r[0];l=r.slice(1)}}else{d=r[0];l=r[1]}const L=+l*10,D=+d;if(![40,60,80,100,120].includes(L)||D<4||D>14)return "";return `${D}mm x ${L}mm`}
 const REF_SPEC={CQF7578:"7mm x 80mm",CQF7588:"8mm x 80mm",CQF75710:"7mm x 100mm",ATG80144:"14mm x 40mm","1011917-060":"8.0mm x 60mm 80cm","607018015":"7.0mm x 180mm 75cm"};
@@ -993,6 +993,7 @@ function stickerFromRef(kind,ref0,x,y){
   else if(kind==="jade"){maker="";product="JADE OTW .035";spec=REF_SPEC[ref]||`REF ${ref}`}
   else if(kind==="yoroi"){const m=ref.match(/YR(\d{2})-?(\d{2})(\d{2})/);maker="KANEKA";product="YOROI HC";spec=m?`${(+m[2]/10).toFixed(1)}mm x ${+m[3]}mm`:`REF ${ref}`;if(m)ref=`YR${m[1]}-${m[2]}${m[3]}HC`}   // 예) YR75-7060HC = 7.0mm x 60mm
   else if(kind==="lutonix"){const m=ref.match(/^9090475(\d{3})(\d{3})/);maker="BD";product="Lutonix 035";if(m){const d=+m[1]>140?+m[1]/100:+m[1]/10;spec=`${d.toFixed(1)}mm x ${+m[2]}mm`}else spec=`REF ${ref}`}   // 예) 9090475120040 = 12.0mm x 40mm, 9090475800060 = 8.0mm x 60mm
+  else if(kind==="bgp"){ref="BGP-5DIR";maker="genoss";product="genoss 5F 2-lumen";spec="5F 2-lumen"}   // B.Braun/genoss 5F 2-lumen 카테터(python picc) 띠 라벨. 2-lumen 글자가 가려져도 REF로 찾아요
   else if(kind==="fortrex"){ref=ref.replace("A3S","A35");const m=ref.match(/A35HPV(\d{2})(\d{3})(\d{3})/);maker="Medtronic";product="Fortrex";spec=m?`${+m[1]}mm x ${+m[2]}mm`:`REF ${ref}`}   // 예) A35HPV12080080 = 12mm x 80mm (샤프트 80cm)
   else if(kind==="smartflex"){maker="Cordis";product="SMART Flex";spec=ref}   // 예) SF08150MV = 8mm x 150mm
   else if(kind==="powerport"){ref=ref.replace(/^8806060$/,"8808060");maker="BD";product=ref==="1608062"?"PowerPort ClearVUE isp":"PowerPort isp M.R.I.";spec=`REF ${ref}`}
@@ -1183,6 +1184,12 @@ async function ocrStage(bmp,list,say){
       if($("oHW")&&$("oHW").checked){const k=attachNumbers(list.concat(extra),nums,W,H);window.__hwnums=nums;say(`손글씨 숫자 ${nums.length}개를 읽고 ${k}개를 스티커에 붙였어요`)}
     }catch(e){console.warn("손글씨",e)}
   }
+  // Argyle 포트 라벨은 같은 일련 코드(예: C0168Y0166A)가 적혀 있어요. 같은 라벨을 두 시트 사진에 찍어도 한 번만 세려고 코드를 달아 둬요
+  for(const st of extra.concat(list)){if(st.hw||classify(st,null)!=="Argyle port")continue;
+    const M=Math.max(W,H),near=lines.filter(l=>Math.hypot(l.x-st.x,l.y-st.y)<.2*M).map(l=>/[A-Z]\d{4}[A-Z]\d{4}[A-Z]/.exec(String(l.text||"").toUpperCase().replace(/[\s-]/g,""))).filter(Boolean);
+    if(near.length)st.serial=near[0][0];
+    const lot=lines.filter(l=>Math.hypot(l.x-st.x,l.y-st.y)<.2*M).map(l=>/LOT([0-9][0-9A-Z]{5,7})/.exec(String(l.text||"").toUpperCase().replace(/[\s-]/g,""))).filter(Boolean);
+    if(lot.length)st.lotc=lot[0][1]}
   return extra;
 }
 function showInterim(list,pid){
@@ -1192,15 +1199,17 @@ function showInterim(list,pid){
   const ap=$("bApply");if(ap){ap.disabled=true;ap.textContent="분석 중... 끝나면 반영할 수 있어요"}
 }
 const NAME_COVER={genoss:["python picc","genoss Picc"],mustang:["mustang(long)150-200"]};   // 같은 라벨의 이름이 다른 행 이름으로 읽히는 경우
-const WIDE_ROWS=new Set(["inpact"]);   // 라벨이 가로로 넓은 제품은 이름과 코드 글자가 더 멀리 떨어져요
+const WIDE_ROWS=new Set(["inpact","genoss"]);   // 라벨이 가로로 넓은 제품은 이름과 코드 글자가 더 멀리 떨어져요
 function leftoverName(covered,nameList,W,H){
   const M=Math.max(W,H),free=nameList.slice();
   for(const c of covered){const rc=classify(c,null);let bi=-1,bd=1e9;
     free.forEach((o,i)=>{const same=o.row===rc,alias=!same&&(NAME_COVER[o.row]||[]).includes(rc);
       if(!same&&!alias)return;
       if(alias&&Math.abs(o.y-c.y)>.025*Math.max(W,H))return;   // 위아래로 붙은 다른 띠 라벨을 같은 라벨로 착각하지 않게
-      const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<(same&&WIDE_ROWS.has(rc)?.16:.12)*M&&d<bd){bd=d;bi=i}});
+      const d=Math.hypot(o.x-c.x,o.y-c.y);if(d<((same&&WIDE_ROWS.has(rc))||(alias&&WIDE_ROWS.has(o.row))?.16:.12)*M&&d<bd){bd=d;bi=i}});
     if(bi>=0)free.splice(bi,1)}
+  // 'genoss co.,ltd' 이름만 남은 라벨은 REF(GPNCN 풍선)로 설명되지 않은 B.Braun 띠 라벨(BGP-5DIR 등)이에요 → python picc 5F 2-lumen
+  for(const o of free)if(o.row==='genoss'){o.row='python picc';o.product='genoss 5F 2-lumen';o.spec='5F 2-lumen';o.nameRow='python picc'}
   return free;
 }
 async function recognize(file,inBatch){
@@ -1235,6 +1244,7 @@ async function recognize(file,inBatch){
     let all=list.concat(ocrExtra),aiItems={extra:[],hw:[],notes:[],date:""};
     if(ai){aiItems=aiToItems(ai,all,pid);all=all.concat(aiItems.extra,aiItems.hw)}
     if(!all.length&&!aiItems.notes.length){setStatus(`스티커를 찾지 못했어요${skipped?` (제품 코드가 아닌 바코드 ${skipped}개는 무시했어요)`:""}. 바코드나 글자가 크게 보이게 더 가까이서 밝게 찍어 보세요.${notesOut.length?" ("+notesOut.join(" / ")+")":""}`);return false}
+    all=all.filter(st=>!((st.serial||st.lotc)&&LAST&&LAST.list.some(o=>o.src!==pid&&((st.serial&&o.serial===st.serial)||(st.lotc&&o.lotc===st.lotc&&(!st.serial||!o.serial))))));   // 다른 사진에서 이미 센 같은 라벨(일련 코드 같음)은 빼요
     if(LAST){LAST.list=LAST.list.filter(x=>x.src!==pid).concat(all);LAST.notes=LAST.notes.filter(x=>x.src!==pid).concat(aiItems.notes);if(!LAST.date)LAST.date=aiItems.date}
     else LAST={list:all,notes:aiItems.notes,date:aiItems.date,hint:0,over:{}};
     S.last={day:D(),ts:Date.now(),list:LAST.list,notes:LAST.notes,date:LAST.date};save();
