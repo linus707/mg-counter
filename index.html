@@ -1446,6 +1446,7 @@ function renderTally(){
   $("tList").querySelectorAll("button[data-x]").forEach(b=>b.onclick=()=>{S.tally.splice(+b.dataset.x,1);save();renderTally();if(LAST)showResult(analyze(LAST.list,LAST.over,LAST))});
 }
 // 손글씨 이름 → 엑셀 행 (엑셀에 그 행이 있을 때만)
+// 한글 손글씨 '델텍'은 글자 인식 모델에 한글이 없어 CHIEHS 같은 영문으로 읽혀요. 그 모양도 Deltec Port로 봐요
 const TROW={"Fabula port":"fabula port","EQ BSL":"eq drain","Deltec Port":"Deltec Port","Safety":"celsite port","EQ PCN":"eq pcn drain","EQ cath":"eq drain","EQ DM":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
 function copyText(t,msg){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast(msg),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast(msg)}catch(e){toast("복사하지 못했어요")}ta.remove()})}
 function tallyRows(){   // 결과표에 합칠 행: 엑셀 행 순서에 맞춰 정렬하기 위한 순서값 포함
@@ -1486,7 +1487,7 @@ function parseTallyLines(lines,W,H){
   return res;
 }
 // 손글씨 이름(예: Safety, EQ PCN, Tulip) 오른쪽의 막대를 잉크 모양으로 세요: — =1, T(丅)=2, F(下)=3, 4획=4, 正=5
-const TNAMES=[[/[sc5][ao]?f+e?t|afet/i,"Safety"],[/pcn/i,"EQ PCN"],[/bsl/i,"EQ BSL"],[/c[ao][-.]?t?h(?!e)/i,"EQ cath"],[/eq ?d[mn]|\bd[mn]\b/i,"EQ DM"],[/t[uv.]?l+[il]?p/i,"Tulip"],[/f[o0]g/i,"Fogarty"],[/fab[uv]?la|fabul/i,"Fabula port"],[/델텍|deltec/i,"Deltec Port"],[/hum|hurn/i,"Human port"]];
+const TNAMES=[[/[sc5][ao]?f+e?t|afet/i,"Safety"],[/pcn/i,"EQ PCN"],[/bsl/i,"EQ BSL"],[/c[ao][-.]?t?h(?!e)/i,"EQ cath"],[/eq ?d[mn]|\bd[mn]\b/i,"EQ DM"],[/t[uv.]?l+[il]?p/i,"Tulip"],[/f[o0]g/i,"Fogarty"],[/fab[uv]?la|fabul/i,"Fabula port"],[/델텍|de[l1I]te[ck]|C[HN][I1l]E[HN]/i,"Deltec Port"],[/hum|hurn/i,"Human port"]];
 // 손글씨 이름은 글자가 한두 개 틀리게 읽혀요(Cafety, Serfety, Hogarh). 글자 차이(편집 거리)가 작으면 같은 이름으로 봐요
 const TWORD={"Fabula port":["fabula",2,/f/],"Safety":["safety",2,/[sc5]/],"Fogarty":["fogarty",3,/[fh]/],"Tulip":["tulip",1,/t/],"Human port":["human",1,/h/]};
 function lev(a,b){const d=[];for(let i=0;i<=a.length;i++){d[i]=[i];for(let j=1;j<=b.length;j++)d[i][j]=i?Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1)):j}return d[a.length][b.length]}
