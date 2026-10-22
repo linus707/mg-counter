@@ -215,7 +215,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const KEY="morning-garden-v1";
-const DEFAULT_ROWS=["인터렉스","mustang","mustang(long)150-200","athletis","interlock","fogarty","v-18","rubicon","sterling","coyote","ranger","epic","innova","eluvia","cutting","roadster","snare","emboshere","아이언","picc(DL)","picc(SL)","Hickman(9.5fr)","Hickman(12.5fr)","chemo","conquest","atlas","perm","covera","covera plus","venovo","haloone","Filter snare","Lutonix","HD","IVC filter BD Denali","새명","genoss Picc","genoss","cleaner","astato","regalia","halberd","gladius",null,"centro","yoroi","tulip","hoffman","raabe","ballkin","lemaitre","rosen wire","venaseal","flebo grif","tri-wedge","hermes","achilles","castor","celsite port","python picc","radiostar","jade","smart stent","saber","mynx","out back","human port","eq drain","eq pcn drain","femoseal","absolute pro","Smart Port","Deltec Port","Argyle port","inpact","Fortrex"];
+const DEFAULT_ROWS=["인터렉스","mustang","mustang(long)150-200","athletis","interlock","fogarty","v-18","rubicon","sterling","coyote","ranger","epic","innova","eluvia","cutting","roadster","snare","emboshere","아이언","picc(DL)","picc(SL)","Hickman(9.5fr)","Hickman(12.5fr)","chemo","conquest","atlas","perm","covera","covera plus","venovo","haloone","Filter snare","Lutonix","HD","IVC filter BD Denali","새명","genoss Picc","genoss","cleaner","astato","regalia","halberd","gladius",null,"centro","yoroi","tulip","hoffman","raabe","ballkin","lemaitre","rosen wire","venaseal","flebo grif","tri-wedge","hermes","achilles","castor","celsite port","python picc","radiostar","jade","smart stent","saber","mynx","out back","human port","eq drain","eq pcn drain","femoseal","absolute pro","Smart Port","Deltec Port","Argyle port","inpact","Fortrex","fabula port"];
+const EXTRA_ROWS=["fabula port"];   // 엑셀에 아직 없는 새 제품: 자동 기입할 때 Total 위에 행을 만들어 넣어요
 const HEADERS=["인터렉스"];
 // GS1 체크디지트 검증을 통과한 GTIN(사진에서 판독) → 엑셀 행 이름
 const SEED={"08714729973959":"athletis","08714729974215":"athletis","08714729973973":"athletis",
@@ -1304,18 +1305,34 @@ function xmlSetCell(xml,ref,rowNum,val){
     const ins=nx?nx.index:row.lastIndexOf("</row>");row=row.slice(0,ins)+cellXml(st&&/customFormat="1"/.test(m[0].split(">")[0])?st:"")+row.slice(ins)}
   return xml.slice(0,m.index)+row+xml.slice(m.index+m[0].length);
 }
-function xlsxPatch(bytes,edits){   // edits: [{sheet, ref, row, val}]
+// 시트 XML에 행 끼워 넣기: at 행부터 아래를 한 칸씩 내리고, 수식(합계 SUM 범위 등)도 같이 고쳐요
+function xmlInsertRow(xml,at,name){
+  const sh=t=>t.replace(/(\$?)([A-Z]{1,3})(\$?)(\d+)/g,(m0,a,c,b,n)=>`${a}${c}${b}${+n>=at?+n+1:n}`);
+  const ext=t=>t.replace(/([A-Z]{1,3}\$?)(\d+):(\$?[A-Z]{1,3}\$?)(\d+)/g,(m0,c1,n1,c2,n2)=>+n2===at-1&&+n1<at?`${c1}${n1}:${c2}${at}`:m0);   // B2:B77 → B2:B78 (새 행도 합계에 포함)
+  xml=xml.replace(/(<row\b[^>]*\br=")(\d+)"/g,(m0,a,n)=>`${a}${+n>=at?+n+1:n}"`)
+         .replace(/(<c\b[^>]*\br=")([A-Z]{1,3})(\d+)"/g,(m0,a,c,n)=>`${a}${c}${+n>=at?+n+1:n}"`)
+         .replace(/(<f\b[^>]*>)([^<]*)(<\/f>)/g,(m0,a,f,b)=>a+ext(sh(f))+b)
+         .replace(/\b(ref|sqref)="([^"]*)"/g,(m0,k,v)=>k==="ref"&&/^A1:/.test(v)?m0:`${k}="${sh(v)}"`);
+  const prev=new RegExp(`<row\\b[^>]*\\br="${at-1}"[^>]*>[\\s\\S]*?<\\/row>`).exec(xml),sA=prev?((/<c\b[^>]*\br="A\d+"[^>]*\bs="(\d+)"/.exec(prev[0])||/<c\b[^>]*\bs="(\d+)"[^>]*\br="A\d+"/.exec(prev[0])||[])[1]||""):"";
+  const nr=`<row r="${at}"><c r="A${at}"${sA?` s="${sA}"`:""} t="inlineStr"><is><t>${name.replace(/[<&>]/g,"")}</t></is></c></row>`;
+  const nx=new RegExp(`<row\\b[^>]*\\br="${at+1}"`).exec(xml);
+  return nx?xml.slice(0,nx.index)+nr+xml.slice(nx.index):xml.replace("</sheetData>",nr+"</sheetData>");
+}
+function xlsxPatch(bytes,edits,inserts){   // edits: [{sheet, ref, row, val}], inserts: [{sheet, at, name}] (행 끼워 넣기 먼저)
   const C=XLSX.CFB,z=C.read(bytes,{type:"array"}),dec=new TextDecoder(),enc=new TextEncoder();
   const get=p=>{const e=C.find(z,p);return e?dec.decode(e.content):null},put=(p,t)=>{const e=C.find(z,p);e.content=enc.encode(t);e.size=e.content.length};
   const wb=get("/xl/workbook.xml"),rels=get("/xl/_rels/workbook.xml.rels");
-  const bySheet={};for(const e of edits)(bySheet[e.sheet]=bySheet[e.sheet]||[]).push(e);
+  const bySheet={},insBy={};for(const e of edits)(bySheet[e.sheet]=bySheet[e.sheet]||[]).push(e);for(const i of inserts||[])(insBy[i.sheet]=insBy[i.sheet]||[]).push(i);
   for(const name in bySheet){
     const sm=new RegExp(`<sheet\\b[^>]*name="${name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}"[^>]*>`).exec(wb);if(!sm)throw new Error(`'${name}' 시트가 없어요`);
     const rid=(/r:id="([^"]+)"/.exec(sm[0])||/\bid="([^"]+)"/.exec(sm[0]))[1],tg=(new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`).exec(rels)||[""])[0],target=(/Target="([^"]+)"/.exec(tg)||[])[1];
     const path=target.startsWith("/")?target:"/xl/"+target.replace(/^\.\//,"");let xml=get(path);
+    for(const i of (insBy[name]||[]).sort((a,b)=>a.at-b.at))xml=xmlInsertRow(xml,i.at,i.name);
     for(const e of bySheet[name])xml=xmlSetCell(xml,e.ref,e.row,e.val);
     put(path,xml);
   }
+  // 행을 끼워 넣었으면 계산 순서 파일(calcChain)은 옛 칸을 가리키니 지워요 (엑셀이 다시 만들어요)
+  if((inserts||[]).length&&C.find(z,"/xl/calcChain.xml")){try{C.utils.cfb_del(z,"/xl/calcChain.xml");put("/xl/_rels/workbook.xml.rels",get("/xl/_rels/workbook.xml.rels").replace(/<Relationship\b[^>]*calcChain[^>]*\/>/,""));put("/[Content_Types].xml",get("/[Content_Types].xml").replace(/<Override\b[^>]*calcChain[^>]*\/>/,""))}catch(e){}}
   // 합계(Total) 같은 수식이 열 때 다시 계산되게
   let w2=/<calcPr\b/.test(wb)?wb.replace(/<calcPr\b([^>]*?)\s*\/?>/,(a,b)=>`<calcPr${b.replace(/\s*fullCalcOnLoad="[^"]*"/,"")} fullCalcOnLoad="1"/>`):wb.replace(/(<extLst|<\/workbook>)/,'<calcPr calcId="0" fullCalcOnLoad="1"/>$1');
   put("/xl/workbook.xml",w2);
@@ -1324,19 +1341,23 @@ function xlsxPatch(bytes,edits){   // edits: [{sheet, ref, row, val}]
 async function fillExcel(){
   if(!XLF){toast("먼저 위에서 월사용량 엑셀을 한 번 올려 주세요");$("bXls").scrollIntoView({behavior:"smooth"});return}
   const plan=fillPlan(),days=Object.keys(plan).sort();if(!days.length){toast("엑셀에 적을 개수가 없어요");return}
-  const full=XLSX.read(XLF.bytes,{type:"array",sheetRows:200}),edits=[],lines=[],miss=[];
+  const full=XLSX.read(XLF.bytes,{type:"array",sheetRows:200}),edits=[],lines=[],miss=[],inserts=[],newRows=[];
   for(const d of days){const [y,m,dd]=d.split("-").map(Number),name=`${y}.${m}월`,ws=full.Sheets[name];if(!ws){miss.push(`'${name}' 시트 없음`);continue}
     const a=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true}),serial=Math.round((Date.UTC(y,m-1,dd)-Date.UTC(1899,11,30))/864e5);
     const col=(a[0]||[]).findIndex((v,i)=>i>0&&((typeof v==="number"&&Math.round(v)===serial)||(typeof v==="string"&&new RegExp(`^\\s*${m}[./]${dd}\\b`).test(v))));
     if(col<0){miss.push(`${m}/${dd} 열 없음`);continue}
-    for(const [row,n] of Object.entries(plan[d])){const ri=a.findIndex((r,i)=>i>0&&r&&r[0]!=null&&String(r[0]).trim()===row);if(ri<0){miss.push(`${row} 행 없음`);continue}
+    for(const [row,n] of Object.entries(plan[d])){let ri=a.findIndex((r,i)=>i>0&&r&&r[0]!=null&&String(r[0]).trim()===row);
+      if(ri<0&&EXTRA_ROWS.includes(row.toLowerCase())){   // 새 제품: Total 바로 위에 행을 만들어요
+        const ti=a.findIndex((r,i)=>i>0&&r&&typeof r[0]==="string"&&r[0].trim().toLowerCase()==="total");
+        if(ti>0){inserts.push({sheet:name,at:ti+1,name:row});a.splice(ti,0,[row]);ri=ti;newRows.push(`${name} ${row}`)}}
+      if(ri<0){miss.push(`${row} 행 없음`);continue}
       const old=a[ri][col];edits.push({sheet:name,ref:colLetter(col)+(ri+1),row:ri+1,val:n,old:typeof old==="number"?old:null,lab:`${m}/${dd} ${row}`})}}
   if(!edits.length){toast("엑셀에서 맞는 칸을 찾지 못했어요");return}
   const had=edits.filter(e=>e.old!=null);   // 이미 값이 있는 칸: 더할지 바꿀지 물어봐요 (같은 날 시트를 나눠서 올릴 때는 더하기)
   if(had.length&&confirm(`이미 숫자가 있는 칸이 ${had.length}개예요.\n\n확인 = 기존 값에 더하기\n취소 = 새 값으로 바꾸기\n\n(같은 사진을 두 번 올린 거라면 '취소'를 누르세요)`))for(const e of had)e.val=e.old+e.val;
   for(const e of edits)lines.push(`${e.lab}: ${e.old==null?"빈칸":e.old} → ${e.val}`);
-  if(!confirm(`월사용량 엑셀에 이렇게 적을까요? (${edits.length}칸)\n\n${lines.join("\n")}${miss.length?"\n\n건너뜀: "+miss.join(", "):""}`))return;
-  try{const out=xlsxPatch(XLF.bytes,edits);XLF={...XLF,bytes:out,at:Date.now()};await idbSet("xlsx",XLF);WB=XLSX.read(out,{type:"array",sheetRows:120});loadXlForDate(false);render();
+  if(!confirm(`월사용량 엑셀에 이렇게 적을까요? (${edits.length}칸)\n\n${lines.join("\n")}${newRows.length?"\n\n새 행 만들기 (Total 바로 위): "+newRows.join(", "):""}${miss.length?"\n\n건너뜀: "+miss.join(", "):""}`))return;
+  try{const out=xlsxPatch(XLF.bytes,edits,inserts);XLF={...XLF,bytes:out,at:Date.now()};await idbSet("xlsx",XLF);WB=XLSX.read(out,{type:"array",sheetRows:120});loadXlForDate(false);render();
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));a.download=XLF.name||"월사용량.xlsx";document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
     toast(`${edits.length}칸을 적었어요. 새 엑셀 파일을 받았어요`)}
   catch(e){console.warn(e);toast("엑셀에 적지 못했어요: "+(e&&e.message||e))}
@@ -1352,7 +1373,7 @@ function copyPlanCols(){
   const plan=fillPlan(),days=Object.keys(plan).sort();if(!days.length){toast("복사할 개수가 없어요");return}
   const all=[];for(let t=Date.parse(days[0]+"T00:00:00Z"),e=Date.parse(days[days.length-1]+"T00:00:00Z");t<=e&&all.length<31;t+=864e5)all.push(new Date(t).toISOString().slice(0,10));   // 사이에 빠진 날짜도 칸을 맞춰요
   const ex=Object.fromEntries(all.map(d=>[d,xlExisting(d)]));
-  const t=S.rows.map(r=>all.map(d=>{if(!r||HEADERS.includes(r))return "";const n=(plan[d]||{})[r];if(n)return String(n);const v=ex[d][r];return v!=null&&v!==""?String(v):""}).join("\t")).join("\n");
+  const t=xlBaseRows().map(r=>all.map(d=>{if(!r||HEADERS.includes(r))return "";const n=(plan[d]||{})[r];if(n)return String(n);const v=ex[d][r];return v!=null&&v!==""?String(v):""}).join("\t")).join("\n");
   const md=d=>d.slice(5).replace("-","/").replace(/^0/,"").replace("/0","/");
   copyText(t,`복사했어요. 엑셀 ${md(all[0])} 열의 2행(첫 제품 칸)을 선택하고 붙여넣으세요${all.length>1?` (${md(all[0])}~${md(all[all.length-1])} ${all.length}개 열)`:""}`);
 }
@@ -1368,7 +1389,8 @@ function loadXlForDate(adopt){
   const rows=[];let end=a.length;
   for(let i=1;i<a.length;i++){const n=a[i][0];if(typeof n==="string"&&n.trim().toLowerCase()==="total"){end=i;break}}
   for(let i=1;i<end;i++){const n=a[i][0];rows.push(n==null?null:String(n).trim());const v=a[i][col];if(n!=null&&v!=null&&v!=="")XL[String(n).trim()]=v}
-  if(adopt||JSON.stringify(rows)!==JSON.stringify(S.rows)){S.rows=rows;save()}
+  S.xlRows=rows;const merged=rows.concat(EXTRA_ROWS.filter(e=>!rows.some(r=>r&&r.toLowerCase()===e)));
+  if(adopt||JSON.stringify(merged)!==JSON.stringify(S.rows)){S.rows=merged;save()}
   $("xlsInfo").innerHTML=`${XLF?`고정된 엑셀: <b>${esc(XLF.name)}</b> (${new Date(XLF.at).toLocaleString()}) <button class="sm" id="bXlDl">지금 파일 받기</button><br>`:""}'${name}' 시트 ${m}/${d} 열 연결됨 · 제품 ${rows.filter(Boolean).length}개 · 기존 값 ${Object.keys(XL).length}개`;if($("bXlDl"))$("bXlDl").onclick=downloadFixed;
 }
 
@@ -1400,9 +1422,10 @@ $("bSpecCopy").onclick=async()=>{
 };
 
 // ---------- 엑셀 열 복사 ----------
+function xlBaseRows(){return S.xlRows&&S.xlRows.length?S.xlRows:S.rows.filter(r=>!EXTRA_ROWS.includes(r))}   // 엑셀에 실제로 있는 행만 (붙여넣을 때 Total 칸을 덮지 않게)
 function colText(){
   const c=cnt();
-  return S.rows.map(r=>{if(!r||HEADERS.includes(r))return "";const n=c[r];if(n)return String(n);const ex=XL[r];return ex!=null&&ex!==""?String(ex):""}).join("\n");
+  return xlBaseRows().map(r=>{if(!r||HEADERS.includes(r))return "";const n=c[r];if(n)return String(n);const ex=XL[r];return ex!=null&&ex!==""?String(ex):""}).join("\n");
 }
 $("bCopy").onclick=async()=>{
   if(!Object.keys(cnt()).length){toast("입력한 개수가 없어요");return}
@@ -1423,7 +1446,7 @@ function renderTally(){
   $("tList").querySelectorAll("button[data-x]").forEach(b=>b.onclick=()=>{S.tally.splice(+b.dataset.x,1);save();renderTally();if(LAST)showResult(analyze(LAST.list,LAST.over,LAST))});
 }
 // 손글씨 이름 → 엑셀 행 (엑셀에 그 행이 있을 때만)
-const TROW={"Deltec Port":"Deltec Port","Safety":"celsite port","EQ PCN":"eq pcn drain","EQ cath":"eq drain","EQ DM":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
+const TROW={"Fabula port":"fabula port","EQ BSL":"eq drain","Deltec Port":"Deltec Port","Safety":"celsite port","EQ PCN":"eq pcn drain","EQ cath":"eq drain","EQ DM":"eq drain","Tulip":"tulip","Fogarty":"fogarty","Human port":"human port"};
 function copyText(t,msg){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast(msg),()=>{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy");toast(msg)}catch(e){toast("복사하지 못했어요")}ta.remove()})}
 function tallyRows(){   // 결과표에 합칠 행: 엑셀 행 순서에 맞춰 정렬하기 위한 순서값 포함
   const man=(S.tally||[]).filter(t=>t.n>0).map(t=>{const row=rowExact(t.name)||rowExact(TROW[Object.keys(TROW).find(k=>k.toLowerCase()===t.name.toLowerCase())]||""),i=row?S.rows.indexOf(row):-1;return {p:row||t.name,sp:t.spec||"-",n:t.n,o:i<0?1e6-1:i,tally:true}});
