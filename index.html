@@ -763,7 +763,7 @@ async function ocrPass(w,bmp,sx,sy,sw,sh,longSide,rot){
 }
 // ---------- v2: 오픈소스 PaddleOCR 로 글자 읽기 ----------
 async function ppPass(bmp,sx,sy,sw,sh,longSide,rot,done){
-  await loadScript("ocr2/ppocr.js?v=29").catch(()=>{});
+  await loadScript("ocr2/ppocr.js?v=35").catch(()=>{});
   if(!window.PPOCR)throw new Error("정밀 글자 인식 파일을 불러오지 못했어요");
   rot=rot||0;
   const sc=longSide/Math.max(sw,sh),cw=Math.round(sw*sc),ch=Math.round(sh*sc),c=document.createElement("canvas");
@@ -1136,7 +1136,7 @@ async function ocrStage(bmp,list,say){
   if(usePP){
     try{
       say("정밀 글자 인식 모델을 준비하는 중이에요 (처음 한 번 약 26MB)...");
-      await loadScript("ocr2/ppocr.js?v=29");await PPOCR.load(say);
+      await loadScript("ocr2/ppocr.js?v=35");await PPOCR.load(say);
       const pp=[[0,0,W,H,1920]];
       if($("oTile").checked){   // 겹치는 2x2 조각 (스티커가 작게 찍힌 사진도 글자가 커져서 읽혀요)
         const tw=W*.6,th=H*.6;for(const fy of [0,.4])for(const fx of [0,.4])pp.push([W*fx,H*fy,tw,th,1920]);
@@ -1500,15 +1500,16 @@ function parseTallyLines(lines,W,H){
 // 손글씨 이름(예: Safety, EQ PCN, Tulip) 오른쪽의 막대를 잉크 모양으로 세요: — =1, T(丅)=2, F(下)=3, 4획=4, 正=5
 const TNAMES=[[/[sc5][ao]?f+e?t|afet/i,"Safety"],[/pcn/i,"EQ PCN"],[/bsl/i,"EQ BSL"],[/c[ao][-.]?t?h(?!e)/i,"EQ cath"],[/eq ?d(?![a-lo-z])|\bd[mn]\b/i,"EQ DM"],[/t[uv.]?l+[il]?p/i,"Tulip"],[/f[o0]g/i,"Fogarty"],[/fab[uv]?la|fabul/i,"Fabula port"],[/델텍|de[l1I]te[ck]|[C\[(]?[HN][I1l|]E[HN]/i,"Deltec Port"],[/hum|hurn/i,"Human port"]];
 // 손글씨 이름은 글자가 한두 개 틀리게 읽혀요(Cafety, Serfety, Hogarh). 글자 차이(편집 거리)가 작으면 같은 이름으로 봐요
-const TWORD={"Fabula port":["fabula",2,/f/],"Safety":["safety",2,/[sc5]/],"Fogarty":["fogarty",3,/[fh]/],"Tulip":["tulip",1,/t/],"Human port":["human",1,/h/]};
+const TWORD={"Fabula port":["fabula",2,/f/,/[bh6]/],"Safety":["safety",2,/[sc5]/,/[ft]/],"Fogarty":["fogarty",3,/[fh]/,/[gq9]/],"Tulip":["tulip",1,/t/,/[li1]/],"Human port":["human",1,/h/,/[mn]/]};   // 4번째: 이름에 꼭 들어 있어야 하는 글자 (Fortrex 같은 인쇄 글자를 잘못 잡지 않게)
 function lev(a,b){const d=[];for(let i=0;i<=a.length;i++){d[i]=[i];for(let j=1;j<=b.length;j++)d[i][j]=i?Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1)):j}return d[a.length][b.length]}
 function fuzzyName(t,re,name){
   re.lastIndex=0;const m=re.exec(t);if(m)return m;
-  const w=TWORD[name];if(!w)return null;const [word,maxD,first]=w,idx=[],low=[];
+  const w=TWORD[name];if(!w)return null;const [word,maxD,first,must]=w,idx=[],low=[];
   for(let i=0;i<t.length;i++)if(/[a-z]/i.test(t[i])){idx.push(i);low.push(t[i].toLowerCase())}
   let best=null;
-  for(let i=0;i<low.length;i++)for(const L of [word.length-1,word.length,word.length+1]){if(i+L>low.length||L<3)continue;
-    const d=lev(low.slice(i,i+L).join(""),word);if(d<=maxD&&first.test(low[i])&&(!best||d<best.d))best={d,i,L}}
+  for(let i=0;i<low.length;i++)for(const L of [word.length-2,word.length-1,word.length,word.length+1]){if(i+L>low.length||L<3)continue;
+    const raw=t[idx[i+L-1]],d0=lev(low.slice(i,i+L).join(""),word),d=d0+(/[TF]/.test(raw)&&L>word.length-2?.5:0);   // 끝이 대문자 T·F면 이름이 아니라 막대 글자일 가능성이 커서 조금 불리하게
+    if(d0<=maxD&&first.test(low[i])&&(!must||low.slice(i,i+L).some(ch=>must.test(ch)))&&(!best||d<best.d))best={d,i,L}}
   if(!best)return null;const st=idx[best.i],en=idx[best.i+best.L-1]+1;return Object.assign([t.slice(st,en)],{index:st});
 }
 const glyphCount=(g,bh)=>{if(g.len<bh*.28)return 0;if(g.h<bh*.45||g.w>g.h*2.2)return 1;const e=g.ends;return e<=2?1:e===3?2:e===4?3:e===5?4:5};

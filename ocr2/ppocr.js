@@ -4,21 +4,34 @@
  */
 (function(){
   const BASE=document.currentScript.src.replace(/[^\/]*$/,"");
-  let det=null,rec=null,dict=null,ready=null;
+  let det=null,rec=null,dict=null,ready=null,modelBuf=null,runs=0;
   const load=(say)=>ready||(ready=(async()=>{
     if(!window.ort){await new Promise((ok,no)=>{const s=document.createElement("script");s.src=BASE+"ort.wasm.min.js";s.onload=ok;s.onerror=()=>no(new Error("onnxruntime 을 불러오지 못했어요"));document.head.appendChild(s)})}
-    ort.env.wasm.wasmPaths=BASE;ort.env.wasm.numThreads=self.crossOriginIsolated?Math.max(1,Math.min(4,(navigator.hardwareConcurrency||2)-1)):1;   // 격리된 페이지면 여러 코어로 계산 (서비스 워커가 격리 헤더를 붙여요)
+    ort.env.wasm.wasmPaths=BASE;const thq=+new URLSearchParams(location.search).get('th')||0;ort.env.wasm.numThreads=thq||(self.crossOriginIsolated?Math.max(1,Math.min(4,(navigator.hardwareConcurrency||2)-1)):1);   // 격리된 페이지면 여러 코어로 계산 (서비스 워커가 격리 헤더를 붙여요)
     ort.env.wasm.proxy=true;   // proxy: 화면이 멈추지 않게 별도 스레드에서 계산
     say&&say("글자 인식 모델을 내려받는 중이에요 (처음 한 번, 약 26MB)...");
     const get=async(f,t)=>{const r=await fetch(BASE+f);if(!r.ok)throw new Error(f+" 다운로드 실패 "+r.status);return t?r.text():r.arrayBuffer()};
     const [d,r,k]=await Promise.all([get("det.onnx"),get("rec.onnx"),get("keys.txt",1)]);
-    det=await ort.InferenceSession.create(d,{executionProviders:["wasm"],graphOptimizationLevel:"all"});
-    rec=await ort.InferenceSession.create(r,{executionProviders:["wasm"],graphOptimizationLevel:"all"});
+    const SO={executionProviders:["wasm"],graphOptimizationLevel:"all",enableCpuMemArena:false,enableMemPattern:false};   // 메모리 풀·패턴을 끄면 사진을 여러 장 읽어도 메모리가 계속 늘지 않아요 (폰에서 중요)
+    modelBuf={d:d.slice(0),r:r.slice(0)};   // 모델 파일은 만들 때 넘겨주면 비워지니, 만들기 전에 다시 만들 때 쓸 복사본을 따로 둬요
+    det=await ort.InferenceSession.create(d,SO);
+    rec=await ort.InferenceSession.create(r,SO);
     const ch=k.split("\n").map(s=>s.replace(/\r$/,""));if(ch[ch.length-1]==="")ch.pop();
     dict=["#blank"].concat(ch,[" "]);
     return true;
   })());
 
+  // 모델 실행: 메모리 부족 같은 오류(wasm 예외가 숫자로 던져져요)가 나면 모델을 다시 만들어서 한 번 더 해 봐요
+  async function recreate(){
+    const SO={executionProviders:["wasm"],graphOptimizationLevel:"all",enableCpuMemArena:false,enableMemPattern:false};
+    try{await det.release()}catch(e){}try{await rec.release()}catch(e){}
+    det=await ort.InferenceSession.create(modelBuf.d.slice(0),SO);rec=await ort.InferenceSession.create(modelBuf.r.slice(0),SO);runs=0;
+  }
+  async function runModel(which,mk){   // mk: 입력 텐서를 만드는 함수 (실패하면 입력이 비워지니 다시 만들어서 재시도해요)
+    try{if(++runs>1500)await recreate();   // 오래 쓰면(사진 10장 안팎) 모델을 새로 만들어 메모리를 되돌려요
+      return await (which==="det"?det:rec).run(mk())}
+    catch(e){await recreate();return await (which==="det"?det:rec).run(mk())}
+  }
   const m32=v=>Math.max(32,Math.round(v/32)*32);
   function toBGR(canvas,w,h,mean,std,half){      // 캔버스 → [1,3,h,w] float (BGR 순서, PaddleOCR 방식)
     const c=document.createElement("canvas");c.width=w;c.height=h;
@@ -36,7 +49,7 @@
   async function detect(canvas,side,low){
     const W=canvas.width,H=canvas.height,s=Math.min(1,side/Math.max(W,H)),w=m32(W*s),h=m32(H*s);
     const inp=toBGR(canvas,w,h,[.485,.456,.406],[.229,.224,.225],false);
-    const out=await det.run({[det.inputNames[0]]:new ort.Tensor("float32",inp,[1,3,h,w])});
+    const out=await runModel("det",()=>({[det.inputNames[0]]:new ort.Tensor("float32",inp.slice(0),[1,3,h,w])}));
     const P=out[det.outputNames[0]].data,n=w*h,seen=new Uint8Array(n),stack=new Int32Array(n),boxes=[];
     const TH=low?.15:.3;
     for(let i=0;i<n;i++){
@@ -61,6 +74,7 @@
         box.ang=ang;box.cx=ax*k;box.cy=ay*k;box.L=(L+2*d2+2*Math.min(T*.35,d2))*k;box.T=(T+2*d2)*k}
       boxes.push(box);
     }
+    try{out[det.outputNames[0]].dispose&&out[det.outputNames[0]].dispose()}catch(e){}   // 출력 텐서 해제 (메모리)
     return boxes;
   }
 
@@ -80,11 +94,12 @@
     return await runRec(inp,W,H);
   }
   async function runRec(inp,W,H){
-    const out=await rec.run({[rec.inputNames[0]]:new ort.Tensor("float32",inp,[1,3,H,W])});
+    const out=await runModel("rec",()=>({[rec.inputNames[0]]:new ort.Tensor("float32",inp.slice(0),[1,3,H,W])}));
     const o=out[rec.outputNames[0]],T=o.dims[1],C=o.dims[2],D=o.data;
     let last=-1,txt="",cs=0,cn=0;const pos=[];
     for(let t=0;t<T;t++){let bi=0,bv=-1;const off=t*C;for(let k=0;k<C;k++){const v=D[off+k];if(v>bv){bv=v;bi=k}}
       if(bi!==0&&bi!==last){const ch=dict[bi]||"";txt+=ch;for(let j=0;j<ch.length;j++)pos.push((t+.5)/T);cs+=bv;cn++}last=bi}
+    try{o.dispose&&o.dispose()}catch(e){}   // 출력 텐서 해제 (메모리)
     return {text:txt,conf:cn?cs/cn:0,pos};   // pos: 글자마다 줄 안에서의 가로 위치(0~1)
   }
 
@@ -95,7 +110,7 @@
     const skip=opt.skip||[];
     for(const b of boxes){
       const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2;if(skip.some(k=>cx>k.x0&&cx<k.x1&&cy>k.y0&&cy<k.y1&&b.x1-b.x0<(k.x1-k.x0)*1.4))continue;   // 이미 확실히 읽은 줄은 다시 읽지 않아요 (속도)
-      let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
+      let r=null;try{r=await readLine(canvas,b)}catch(e){(window.__PE=window.__PE||[]).push(String(e&&e.message||e)+' box='+[b.x0,b.y0,b.x1,b.y1].map(v=>v|0));continue}
       if(opt.flip&&r&&r.conf<.75&&(b.ang!=null?b.L>b.T*2.5:b.x1-b.x0>(b.y1-b.y0)*2.5)){try{const r2=await readLine(canvas,{...b,flip:true});if(r2&&r2.conf>r.conf+.08){r=r2;r.pos=null}}catch(e){}}   // 흐리게 읽힌 가로줄은 뒤집어서도 읽어 봐요
       if(r&&r.text.trim()&&r.conf>=.3)lines.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:b.ang==null&&!(b.y1-b.y0>(b.x1-b.x0)*1.6)?r.pos:null,px:!r.pos||b.y1-b.y0>(b.x1-b.x0)*1.6?null:b.ang!=null?r.pos.map(f=>b.cx+(f-.5)*b.L*Math.cos(b.ang)):r.pos.map(f=>b.x0+f*(b.x1-b.x0))});   // px: 글자별 가로 위치 (기울어진 줄도)
     }
@@ -223,7 +238,7 @@
     const cand=L.filter(G=>{const w=G.x1-G.x0,h=G.y1-G.y0;return w>=h*1.6&&w<=h*14&&h>=14}).sort((a,b)=>(b.x1-b.x0)-(a.x1-a.x0)).slice(0,opt.max||40);
     const out=[];
     for(const G of cand){const h=G.y1-G.y0,pd=Math.round(h*.25),b={x0:Math.max(0,G.x0-pd),y0:Math.max(0,G.y0-pd),x1:Math.min(W,G.x1+pd),y1:Math.min(H,G.y1+pd)};
-      let r=null;try{r=await readLine(canvas,b)}catch(e){continue}
+      let r=null;try{r=await readLine(canvas,b)}catch(e){(window.__PE=window.__PE||[]).push(String(e&&e.message||e)+' box='+[b.x0,b.y0,b.x1,b.y1].map(v=>v|0));continue}
       if(r&&r.text.trim()&&r.conf>=.4)out.push({text:r.text,conf:r.conf,x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2,w:b.x1-b.x0,h:b.y1-b.y0,pos:r.pos,hand:true})}
     return out;
   }   // 글자 찾기 없이 정한 칸만 바로 읽기
